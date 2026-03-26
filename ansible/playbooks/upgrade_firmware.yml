@@ -1,0 +1,295 @@
+---
+# Rolling firmware upgrade playbook
+# Performs controlled firmware updates with validation at each step
+
+- name: Rolling Firmware Upgrade for Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: 1  # One device at a time
+  max_fail_percentage: 0  # Stop on first failure
+
+  vars:
+    upgrade_window_start: "2024-01-01T02:00:00Z"
+    upgrade_window_end: "2024-01-01T04:00:00Z"
+    firmware_version_required: "21.2R1.10"
+
+  pre_tasks:
+    - name: Validate upgrade window
+      assert:
+        that:
+          - ansible_date_time.iso8601 >= upgrade_window_start
+          - ansible_date_time.iso8601 <= upgrade_window_end
+        fail_msg: "Upgrade outside maintenance window"
+      run_once: yes
+      tags:
+        - upgrade
+        - validation
+
+    - name: Display upgrade info
+      debug:
+        msg:
+          - "Starting firmware upgrade on {{ inventory_hostname }}"
+          - "Current Device Type: {{ device_type }}"
+          - "Target Version: {{ firmware_version_required }}"
+      tags:
+        - always
+
+    - name: Create upgrade backup
+      include_tasks: backup_configs.yml
+      tags:
+        - backup
+        - upgrade
+
+    - name: Get current firmware version
+      junos_command:
+        commands:
+          - "show version"
+      register: current_version
+      tags:
+        - upgrade
+        - version
+
+    - name: Parse current firmware version
+      set_fact:
+        current_fw_version: "{{ current_version.stdout[0] | regex_search('[0-9]{2}\\.[0-9]{1,3}[A-Z]?[0-9]{1,3}\\.[0-9]{1,3}') }}"
+      tags:
+        - upgrade
+        - version
+
+    - name: Display current version
+      debug:
+        msg: "Current firmware version: {{ current_fw_version }}"
+      tags:
+        - upgrade
+        - version
+
+    - name: Skip if already on target version
+      meta: end_host
+      when: current_fw_version == firmware_version_required
+      tags:
+        - upgrade
+        - skip
+
+  tasks:
+    - name: Request firmware download
+      pause:
+        prompt: "Please provide the path to the firmware package for {{ device_model }}. Press enter to continue"
+      register: firmware_path
+      tags:
+        - upgrade
+        - manual
+
+    - name: Copy firmware to device
+      junos_scp:
+        src: "{{ firmware_path.user_input }}"
+        dest: /var/tmp/junos-{{ device_model | regex_replace('[^a-zA-Z0-9]', '') }}.tgz
+      async: 1800  # 30 minute timeout
+      poll: 60  # Check every 60 seconds
+      tags:
+        - upgrade
+        - transfer
+
+    - name: Validate firmware checksum
+      junos_command:
+        commands:
+          - "request shell execute 'cd /var/tmp && sha256sum -c junos.sha256'"
+      ignore_errors: yes
+      tags:
+        - upgrade
+        - validation
+
+    - name: Notify stakeholders of upgrade start
+      debug:
+        msg:
+          - "FIRMWARE UPGRADE IN PROGRESS"
+          - "Device: {{ inventory_hostname }}"
+          - "Type: {{ device_type }}"
+          - "Current Version: {{ current_fw_version }}"
+          - "Target Version: {{ firmware_version_required }}"
+          - "Do NOT interrupt this process"
+      tags:
+        - notification
+        - upgrade
+
+    - name: Install firmware
+      junos_install_config:
+        reboot: no
+        validate: yes
+      register: firmware_install
+      tags:
+        - upgrade
+        - install
+
+    - name: Check installation status
+      junos_command:
+        commands:
+          - "request shell execute 'ls -la /var/tmp/junos*.tgz'"
+      register: install_check
+      tags:
+        - upgrade
+        - validation
+
+    - name: Schedule reboot for spines
+      junos_command:
+        commands:
+          - "request system reboot in 2"
+      when: device_type == "spine" and firmware_install is succeeded
+      tags:
+        - upgrade
+        - reboot
+
+    - name: Schedule reboot for leaves
+      junos_command:
+        commands:
+          - "request system reboot in 5"
+      when: device_type == "leaf" and firmware_install is succeeded
+      tags:
+        - upgrade
+        - reboot
+
+    - name: Wait for device to come back online (spines)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ ansible_port }}"
+        delay: 120
+        timeout: 600
+        state: started
+      delegate_to: localhost
+      when: device_type == "spine"
+      tags:
+        - upgrade
+        - recovery
+
+    - name: Wait for device to come back online (leaves)
+      wait_for:
+        host: "{{ ansible_host }}"
+        port: "{{ ansible_port }}"
+        delay: 300
+        timeout: 600
+        state: started
+      delegate_to: localhost
+      when: device_type == "leaf"
+      tags:
+        - upgrade
+        - recovery
+
+    - name: Pause for device stabilization
+      pause:
+        seconds: 30
+      tags:
+        - upgrade
+        - stabilization
+
+    - name: Verify new firmware version
+      junos_command:
+        commands:
+          - "show version"
+      register: new_version
+      tags:
+        - upgrade
+        - verification
+
+    - name: Parse new firmware version
+      set_fact:
+        new_fw_version: "{{ new_version.stdout[0] | regex_search('[0-9]{2}\\.[0-9]{1,3}[A-Z]?[0-9]{1,3}\\.[0-9]{1,3}') }}"
+      tags:
+        - upgrade
+        - verification
+
+    - name: Validate upgrade success
+      assert:
+        that:
+          - new_fw_version == firmware_version_required
+        fail_msg: "Firmware version mismatch. Expected {{ firmware_version_required }}, got {{ new_fw_version }}"
+        success_msg: "Firmware upgrade successful: {{ new_fw_version }}"
+      tags:
+        - upgrade
+        - verification
+
+    - name: Collect post-upgrade facts
+      junos_facts:
+        gather_subset: all
+      register: post_upgrade_facts
+      tags:
+        - upgrade
+        - facts
+
+    - name: Run fabric validation
+      include_tasks: validate_fabric.yml
+      tags:
+        - upgrade
+        - validation
+        - health_check
+
+    - name: Verify BGP session status
+      junos_command:
+        commands:
+          - "show bgp summary"
+      register: bgp_post_upgrade
+      tags:
+        - upgrade
+        - bgp
+        - verification
+
+    - name: Verify all BGP sessions restored
+      assert:
+        that:
+          - "'established' in bgp_post_upgrade.stdout[0]"
+        fail_msg: "BGP sessions not recovered after upgrade"
+        success_msg: "BGP sessions restored successfully"
+      tags:
+        - upgrade
+        - bgp
+        - verification
+
+  post_tasks:
+    - name: Create upgrade report
+      template:
+        src: upgrade_report.j2
+        dest: "{{ backup_path }}/upgrade_report_{{ inventory_hostname }}_{{ ansible_date_time.iso8601_basic_short }}.txt"
+      delegate_to: localhost
+      vars:
+        old_version: "{{ current_fw_version }}"
+        new_version: "{{ new_fw_version }}"
+      tags:
+        - report
+        - upgrade
+
+    - name: Notify upgrade completion
+      debug:
+        msg:
+          - "FIRMWARE UPGRADE COMPLETED"
+          - "Device: {{ inventory_hostname }}"
+          - "Type: {{ device_type }}"
+          - "Previous Version: {{ current_fw_version }}"
+          - "New Version: {{ new_fw_version }}"
+          - "Status: SUCCESS"
+      tags:
+        - notification
+        - upgrade
+        - always
+
+    - name: Log upgrade to audit file
+      shell: |
+        echo "$(date): {{ inventory_hostname }} upgraded from {{ current_fw_version }} to {{ new_fw_version }}" \
+        >> {{ backup_path }}/UPGRADE_AUDIT.log
+      delegate_to: localhost
+      tags:
+        - audit
+        - logging
+
+    - name: Save post-upgrade configuration
+      copy:
+        content: "{{ post_upgrade_facts | to_nice_json }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_post_upgrade_facts.json"
+      delegate_to: localhost
+      tags:
+        - backup
+        - facts
+
+  handlers:
+    - name: Commit configuration
+      junos_config:
+        comment: "Configuration committed after firmware upgrade"
+        commit: yes
+      listen: "post-upgrade-commit"

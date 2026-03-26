@@ -1,0 +1,182 @@
+---
+# Interfaces configuration role
+# Configures: loopbacks, P2P links, LAGs, IRB interfaces, VLANs
+
+- name: Configure loopback interface
+  junos_config:
+    lines:
+      - "set interfaces lo0 unit 0 family inet address {{ loopback_ip }}/{{ loopback_subnet }}"
+      - "set interfaces lo0 description \"{{ device_type | upper }} Loopback\""
+    comment: "Configure loopback interface"
+  tags:
+    - loopback
+    - interfaces
+
+- name: Configure management interface
+  junos_config:
+    lines:
+      - "set interfaces em0 unit 0 family inet address {{ management_ip }}/24"
+      - "set interfaces em0 description \"Management Interface\""
+    comment: "Configure management interface"
+  tags:
+    - management
+    - interfaces
+
+- name: Configure P2P underlay links
+  junos_config:
+    lines:
+      - "set interfaces {{ item.name }} description \"{{ item.description }}\""
+      - "set interfaces {{ item.name }} unit 0 family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }}"
+      - "set interfaces {{ item.name }} unit 0 family inet mtu {{ item.mtu }}"
+      - "set interfaces {{ item.name }} speed {{ item.speed }}"
+      - "set interfaces {{ item.name }} mtu {{ item.mtu }}"
+      - "set interfaces {{ item.name }} link-mode full-duplex"
+    comment: "Configure P2P interface {{ item.name }}"
+  loop: "{{ interfaces | selectattr('ip_address', 'defined') | selectattr('name', 'match', '^ge-') }}"
+  tags:
+    - p2p
+    - interfaces
+    - underlay
+
+- name: Configure server-facing access ports (leaves)
+  junos_config:
+    lines:
+      - "set interfaces {{ item.name }} description \"{{ item.description }}\""
+      - "set interfaces {{ item.name }} unit 0 family ethernet-switching interface-mode access"
+      - "set interfaces {{ item.name }} unit 0 family ethernet-switching vlan members {{ item.access_vlan }}"
+      - "set interfaces {{ item.name }} speed {{ item.speed }}"
+      - "set interfaces {{ item.name }} mtu {{ item.mtu }}"
+    comment: "Configure access port {{ item.name }}"
+  loop: "{{ interfaces | selectattr('mode', 'equalto', 'access') }}"
+  when: device_type == "leaf"
+  tags:
+    - access_ports
+    - interfaces
+
+- name: Configure VLANs (leaves)
+  junos_config:
+    lines:
+      - "set vlans {{ item.name }} vlan-id {{ item.vlan_id }}"
+      - "set vlans {{ item.name }} description \"{{ item.description }}\""
+    comment: "Create VLAN {{ item.name }}"
+  loop: "{{ vlans | default([]) }}"
+  when: device_type == "leaf"
+  tags:
+    - vlans
+    - interfaces
+
+- name: Configure IRB (VLAN) gateway interfaces (leaves)
+  junos_config:
+    lines:
+      - "set interfaces irb unit {{ item.vlan_id }} family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }}"
+      - "set interfaces irb unit {{ item.vlan_id }} description \"{{ item.description }}\""
+      - "set vlans {{ item.vlan_id | string }} l3-interface irb.{{ item.vlan_id }}"
+    comment: "Configure IRB interface for VLAN {{ item.vlan_id }}"
+  loop: "{{ vlan_interfaces | default([]) }}"
+  when: device_type == "leaf" and l3_vlan_enabled
+  tags:
+    - irb
+    - vlan_gateways
+    - interfaces
+
+- name: Configure LAGs for multi-homed servers (leaves)
+  junos_config:
+    lines:
+      - "set interfaces ae{{ loop.index0 }} description \"{{ item.name }}\""
+      - "set interfaces ae{{ loop.index0 }} aggregated-ether-options lacp active"
+      - "set interfaces ae{{ loop.index0 }} aggregated-ether-options lacp periodic fast"
+      - "set interfaces ae{{ loop.index0 }} unit 0 family ethernet-switching interface-mode access"
+    comment: "Configure LAG for {{ item.name }}"
+  loop: "{{ esi_config | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: device_type == "leaf" and lag_enabled
+  tags:
+    - lag
+    - esi
+    - interfaces
+
+- name: Add interfaces to LAGs (leaves)
+  junos_config:
+    lines:
+      - "set interfaces {{ item.1 }} ether-options 802.3ad ae{{ outer_item.0 | int }}"
+    comment: "Add {{ item.1 }} to LAG ae{{ outer_item.0 | int }}"
+  vars:
+    outer_item: "{{ esi_config | default([]) | list | zip(range(0, 100)) | list }}"
+  loop: "{{ esi_config | default([]) | product(interfaces) | list }}"
+  when:
+    - device_type == "leaf"
+    - lag_enabled
+    - "item.1 in item.0.interfaces"
+  ignore_errors: yes
+  tags:
+    - lag
+    - esi
+    - interfaces
+
+- name: Configure BFD for underlay
+  junos_config:
+    lines:
+      - "set protocols bfd interface {{ item.name }}.0 minimum-interval {{ bfd_config.interval }}"
+      - "set protocols bfd interface {{ item.name }}.0 multiplier {{ bfd_config.multiplier }}"
+    comment: "Configure BFD on {{ item.name }}"
+  loop: "{{ interfaces | selectattr('ip_address', 'defined') }}"
+  when: underlay_bfd_enabled
+  tags:
+    - bfd
+    - interfaces
+    - underlay
+
+- name: Disable unused interfaces
+  junos_config:
+    lines:
+      - "set interfaces {{ item }} disable"
+    comment: "Disable unused interface {{ item }}"
+  loop: "{{ unused_interfaces | default([]) }}"
+  when: unused_interfaces is defined
+  ignore_errors: yes
+  tags:
+    - disable_unused
+    - interfaces
+
+- name: Configure interface MTU for jumbo frames
+  junos_config:
+    lines:
+      - "set interfaces {{ item }} mtu 9192"
+    comment: "Enable jumbo frames on {{ item }}"
+  loop: "{{ interfaces | selectattr('name', 'match', '^ge-') | map(attribute='name') | list }}"
+  when: jumbo_frames_enabled
+  ignore_errors: yes
+  tags:
+    - mtu
+    - jumbo_frames
+    - interfaces
+
+- name: Configure port speeds
+  junos_config:
+    lines:
+      - "set interfaces {{ item.name }} speed {{ item.speed | default('auto') }}"
+    comment: "Configure speed for {{ item.name }}"
+  loop: "{{ interfaces | selectattr('name', 'match', '^[gx]e-') }}"
+  when: item.speed is defined
+  ignore_errors: yes
+  tags:
+    - speed
+    - interfaces
+
+- name: Verify interface configuration
+  junos_command:
+    commands:
+      - "show interfaces terse"
+      - "show vlans"
+  register: interface_verify
+  tags:
+    - verify
+    - interfaces
+
+- name: Display interface verification results
+  debug:
+    msg: "Interface configuration verified on {{ inventory_hostname }}"
+  tags:
+    - verify
+    - interfaces

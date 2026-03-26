@@ -1,0 +1,253 @@
+---
+# Base configuration role
+# Configures: hostname, users, NTP, syslog, SNMP, DNS, banner, NETCONF
+
+- name: Generate base configuration from template
+  template:
+    src: base.conf.j2
+    dest: /tmp/base_config.conf
+    backup: yes
+  register: config_generated
+  tags:
+    - config
+    - base
+
+- name: Load configuration from template
+  junos_config:
+    src: /tmp/base_config.conf
+    comment: "Base configuration deployment"
+    confirm_commit: yes
+    confirm: yes
+    lines: []
+  when: config_generated is succeeded
+  tags:
+    - config
+    - base
+    - commit
+
+- name: Configure hostname via command
+  junos_config:
+    lines:
+      - "set system host-name {{ hostname }}"
+    comment: "Configure system hostname"
+  tags:
+    - hostname
+    - system
+    - base
+
+- name: Configure root authentication disabled
+  junos_config:
+    lines:
+      - "set system root-authentication disabled"
+    comment: "Disable root login"
+  tags:
+    - security
+    - users
+    - base
+
+- name: Configure system users
+  junos_config:
+    lines:
+      - "set system login user {{ item.username }} uid {{ item.uid }}"
+      - "set system login user {{ item.username }} class {{ item.class }}"
+    comment: "Configure user {{ item.username }}"
+  loop: "{{ system_users }}"
+  no_log: true
+  tags:
+    - users
+    - security
+    - base
+
+- name: Configure login banner
+  junos_config:
+    lines:
+      - "set system login banner \"{{ login_banner | regex_replace('\"', '\\\"') }}\""
+    comment: "Configure login banner"
+  tags:
+    - banner
+    - security
+    - base
+
+- name: Configure NTP servers
+  junos_config:
+    lines:
+      - "set system ntp server {{ item }}"
+    comment: "Configure NTP server {{ item }}"
+  loop: "{{ ntp_servers }}"
+  tags:
+    - ntp
+    - system
+    - base
+
+- name: Configure system timezone
+  junos_config:
+    lines:
+      - "set system time-zone {{ ntp_timezone }}"
+    comment: "Configure timezone"
+  tags:
+    - ntp
+    - system
+    - base
+
+- name: Configure DNS servers
+  junos_config:
+    lines:
+      - "set system name-server {{ item }}"
+    comment: "Configure DNS server {{ item }}"
+  loop: "{{ dns_servers }}"
+  tags:
+    - dns
+    - system
+    - base
+
+- name: Configure domain name
+  junos_config:
+    lines:
+      - "set system domain-name {{ domain_name }}"
+    comment: "Configure domain name"
+  tags:
+    - dns
+    - system
+    - base
+
+- name: Configure syslog forwarding
+  junos_config:
+    lines:
+      - "set system syslog host {{ item }} port {{ syslog_port }} facility {{ syslog_facility }} severity {{ syslog_severity }}"
+    comment: "Configure syslog forwarding to {{ item }}"
+  loop: "{{ syslog_servers }}"
+  tags:
+    - syslog
+    - logging
+    - base
+
+- name: Configure syslog file rotation
+  junos_config:
+    lines:
+      - "set system syslog file messages size 100m"
+      - "set system syslog file messages any notice"
+      - "set system syslog file messages archive size 100m"
+      - "set system syslog file messages archive files 10"
+    comment: "Configure syslog file rotation"
+  tags:
+    - syslog
+    - logging
+    - base
+
+- name: Configure SNMP community
+  junos_config:
+    lines:
+      - "set snmp community {{ snmp_community }} authorization read-only"
+    comment: "Configure SNMP community"
+  no_log: true
+  tags:
+    - snmp
+    - monitoring
+    - base
+
+- name: Configure SNMP v3
+  junos_config:
+    lines:
+      - "set snmp v3 usm local-engine engine-id {{ snmp_v3_engine_id }}"
+      - "set snmp v3 usm local-engine user {{ snmp_v3_username }} authentication-protocol sha"
+    comment: "Configure SNMP v3"
+  no_log: true
+  tags:
+    - snmp
+    - monitoring
+    - base
+
+- name: Configure SNMP system parameters
+  junos_config:
+    lines:
+      - "set snmp description \"{{ device_type | upper }} - {{ hostname }}\""
+      - "set snmp location \"{{ snmp_locations[0] }}\""
+      - "set snmp contact \"{{ snmp_contact }}\""
+    comment: "Configure SNMP system parameters"
+  tags:
+    - snmp
+    - monitoring
+    - base
+
+- name: Configure SNMP trap targets
+  junos_config:
+    lines:
+      - "set snmp trap-group fabric-traps version v2c"
+      - "set snmp trap-group fabric-traps community {{ snmp_community }}"
+      - "set snmp trap-group fabric-traps targets {{ item.address }}"
+    comment: "Configure SNMP trap targets"
+  loop: "{{ snmp_trap_targets }}"
+  no_log: true
+  tags:
+    - snmp
+    - traps
+    - monitoring
+    - base
+
+- name: Enable NETCONF over SSH
+  junos_config:
+    lines:
+      - "set system services netconf ssh"
+      - "set system services netconf ssh port {{ netconf_port }}"
+    comment: "Enable NETCONF over SSH"
+  tags:
+    - netconf
+    - management
+    - base
+
+- name: Configure SSH security
+  junos_config:
+    lines:
+      - "set system services ssh port {{ ssh_port }}"
+      - "set system services ssh protocol-version v2"
+      - "set system services ssh macs hmac-sha2-256"
+      - "set system services ssh macs hmac-sha2-512"
+      - "set system services ssh cipher aes128-ctr"
+      - "set system services ssh cipher aes256-ctr"
+    comment: "Configure SSH security settings"
+  tags:
+    - ssh
+    - security
+    - base
+
+- name: Disable unnecessary services
+  junos_config:
+    lines:
+      - "delete system services finger"
+      - "delete system services ftp"
+      - "delete system services telnet"
+    comment: "Disable unnecessary services"
+  ignore_errors: yes
+  tags:
+    - services
+    - security
+    - base
+
+- name: Configure console settings
+  junos_config:
+    lines:
+      - "set system ports console type vt100"
+      - "set system ports console speed 9600"
+    comment: "Configure console"
+  tags:
+    - console
+    - system
+    - base
+
+- name: Verify base configuration
+  junos_command:
+    commands:
+      - "show system host-name"
+      - "show system domain-name"
+      - "show system ntp status"
+  register: base_verify
+  tags:
+    - verify
+    - base
+
+- name: Display base configuration verification
+  debug:
+    msg: "Base configuration verification on {{ inventory_hostname }} completed successfully"
+  tags:
+    - verify
+    - base

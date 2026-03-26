@@ -1,0 +1,262 @@
+---
+# Deploy security hardening configuration
+# Includes: CoPP, port security, storm control, SSH hardening, firewall filters
+
+- name: Deploy Security Configuration to Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "30%"
+
+  pre_tasks:
+    - name: Display security deployment info
+      debug:
+        msg:
+          - "Deploying security hardening to {{ inventory_hostname }}"
+          - "Device Type: {{ device_type }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Configure CoPP firewall filter for control plane policing
+      junos_config:
+        lines:
+          - set firewall filter __default_bpdu_filter__ term allow-bpdu from protocol igmp
+          - set firewall filter __default_bpdu_filter__ term allow-bpdu then accept
+          - set firewall filter __default_bpdu_filter__ term discard-bpdu then discard
+          - set firewall filter copp-filter term ssh from protocol tcp
+          - set firewall filter copp-filter term ssh from destination-port ssh
+          - set firewall filter copp-filter term ssh then policer ssh-policer
+          - set firewall filter copp-filter term ssh then accept
+          - set firewall filter copp-filter term snmp from protocol udp
+          - set firewall filter copp-filter term snmp from destination-port snmp
+          - set firewall filter copp-filter term snmp then policer snmp-policer
+          - set firewall filter copp-filter term snmp then accept
+          - set firewall filter copp-filter term ntp from protocol udp
+          - set firewall filter copp-filter term ntp from destination-port ntp
+          - set firewall filter copp-filter term ntp then policer ntp-policer
+          - set firewall filter copp-filter term ntp then accept
+          - set firewall filter copp-filter term bgp from protocol tcp
+          - set firewall filter copp-filter term bgp from destination-port bgp
+          - set firewall filter copp-filter term bgp then policer bgp-policer
+          - set firewall filter copp-filter term bgp then accept
+          - set firewall filter copp-filter term icmp from protocol icmp
+          - set firewall filter copp-filter term icmp then policer icmp-policer
+          - set firewall filter copp-filter term icmp then accept
+          - set firewall filter copp-filter term discard then discard
+        comment: "Configure CoPP firewall filter"
+      when: copp_enabled
+      tags:
+        - copp
+        - firewall
+        - security
+
+    - name: Configure policers for CoPP
+      junos_config:
+        lines:
+          - set firewall policer ssh-policer if-exceeding bandwidth-limit 10000 burst-size-limit 20000
+          - set firewall policer ssh-policer then discard
+          - set firewall policer snmp-policer if-exceeding bandwidth-limit 5000 burst-size-limit 10000
+          - set firewall policer snmp-policer then discard
+          - set firewall policer ntp-policer if-exceeding bandwidth-limit 5000 burst-size-limit 10000
+          - set firewall policer ntp-policer then discard
+          - set firewall policer bgp-policer if-exceeding bandwidth-limit 50000 burst-size-limit 100000
+          - set firewall policer bgp-policer then discard
+          - set firewall policer icmp-policer if-exceeding bandwidth-limit 10000 burst-size-limit 20000
+          - set firewall policer icmp-policer then discard
+        comment: "Configure policers for CoPP"
+      when: copp_enabled
+      tags:
+        - copp
+        - policer
+        - security
+
+    - name: Apply CoPP filter to routing engine
+      junos_config:
+        lines:
+          - set forwarding-options family inet filter input copp-filter
+          - set forwarding-options family inet6 filter input copp-filter
+        comment: "Apply CoPP filter to routing engine"
+      when: copp_enabled
+      tags:
+        - copp
+        - routing_engine
+        - security
+
+    - name: Configure port security on leaf server ports
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} unit 0 family ethernet-switching port-security maximum-addresses {{ port_security_max_addresses }}
+          - set interfaces {{ item.name }} unit 0 family ethernet-switching port-security violation action {{ port_security_violation_action }}
+        comment: "Configure port security on {{ item.name }}"
+      loop: "{{ interfaces | selectattr('mode', 'equalto', 'access') }}"
+      when:
+        - device_type == "leaf"
+        - port_security_enabled
+      tags:
+        - port_security
+        - security
+
+    - name: Configure storm control on all interfaces
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} unit 0 family ethernet-switching storm-control default
+        comment: "Enable storm control on {{ item.name }}"
+      loop: "{{ interfaces | selectattr('name', 'match', '^ge-') }}"
+      when: storm_control_enabled
+      tags:
+        - storm_control
+        - security
+
+    - name: Configure storm control profiles
+      junos_config:
+        lines:
+          - set firewall policer storm-broadcast if-exceeding bandwidth-limit {{ storm_control_broadcast_threshold }} burst-size-limit {{ storm_control_broadcast_threshold * 2 }}
+          - set firewall policer storm-broadcast then discard
+          - set firewall policer storm-multicast if-exceeding bandwidth-limit {{ storm_control_multicast_threshold }} burst-size-limit {{ storm_control_multicast_threshold * 2 }}
+          - set firewall policer storm-multicast then discard
+          - set firewall policer storm-unknown-unicast if-exceeding bandwidth-limit {{ storm_control_unknown_unicast_threshold }} burst-size-limit {{ storm_control_unknown_unicast_threshold * 2 }}
+          - set firewall policer storm-unknown-unicast then discard
+        comment: "Configure storm control policers"
+      when: storm_control_enabled
+      tags:
+        - storm_control
+        - policer
+        - security
+
+    - name: Configure SSH hardening
+      junos_config:
+        lines:
+          - set system services ssh algorithm hostkey ssh-rsa
+          - set system services ssh algorithm hostkey ssh-dss
+          - set system services ssh algorithm hostkey ecdsa-sha2-nistp256
+          - set system services ssh macs hmac-sha1
+          - set system services ssh macs hmac-sha2-256
+          - set system services ssh macs hmac-sha2-512
+          - set system services ssh cipher aes128-ctr
+          - set system services ssh cipher aes192-ctr
+          - set system services ssh cipher aes256-ctr
+          - set system services ssh key-exchange diffie-hellman-group-exchange-sha1
+          - set system services ssh key-exchange diffie-hellman-group-exchange-sha256
+          - set system services ssh key-exchange diffie-hellman-group14-sha1
+          - set system services ssh max-sessions-per-connection 10
+          - set system services ssh rate-limit 10
+          - set system services ssh tcp-forwarding disable
+          - set system services ssh x11-forwarding disable
+        comment: "Configure SSH security hardening"
+      tags:
+        - ssh
+        - security
+
+    - name: Configure denial of service protection
+      junos_config:
+        lines:
+          - set security forwarding-options family inet6 mode packet-based
+          - set security forwarding-options family inet mode packet-based
+          - set security flow tcp-mss ipsec-vpn mss 1350
+          - set security flow tcp-session rst-validate drop-all-tcp-reset
+        comment: "Configure DOS protection"
+      tags:
+        - dos
+        - security
+
+    - name: Disable unnecessary system services
+      junos_config:
+        lines:
+          - delete system services finger
+          - delete system services xnm-clear-text
+          - delete system services xnm-ssl
+          - delete system services http
+          - delete system services ftp
+          - delete system services rsh
+          - delete system services telnet
+        comment: "Disable unnecessary system services"
+      tags:
+        - services
+        - security
+        - hardening
+
+    - name: Configure firewall zone protection
+      junos_config:
+        lines:
+          - set security zones security-zone trust host-inbound-traffic system-services netconf
+          - set security zones security-zone trust host-inbound-traffic system-services ssh
+          - set security zones security-zone trust host-inbound-traffic system-services snmp
+          - set security zones security-zone trust host-inbound-traffic protocols bgp
+          - set security zones security-zone trust host-inbound-traffic protocols bfd
+        comment: "Configure zone-based firewall protection"
+      tags:
+        - zones
+        - firewall
+        - security
+
+    - name: Configure rate limiting for critical protocols
+      junos_config:
+        lines:
+          - set security ddos-protection protocols bgp aggregate bandwidth-limit 100m
+          - set security ddos-protection protocols bgp aggregate flow-limit 100k
+          - set security ddos-protection protocols bfd aggregate bandwidth-limit 10m
+          - set security ddos-protection protocols bfd aggregate flow-limit 10k
+        comment: "Configure protocol-based rate limiting"
+      tags:
+        - rate_limiting
+        - ddos
+        - security
+
+    - name: Configure syslog for security events
+      junos_config:
+        lines:
+          - set system syslog file security-log facility auth
+          - set system syslog file security-log facility local0
+          - set system syslog file security-log facility security
+          - set system syslog file security-log any critical
+          - set system syslog file security-log archive size 100m
+          - set system syslog file security-log archive files 10
+        comment: "Configure security logging"
+      tags:
+        - syslog
+        - logging
+        - security
+
+    - name: Configure logging for dropped packets
+      junos_config:
+        lines:
+          - set firewall log disable-close-session
+          - set security log level debugging
+        comment: "Enable security logging"
+      tags:
+        - logging
+        - security
+
+  post_tasks:
+    - name: Commit security configuration
+      junos_config:
+        comment: "Security configuration deployment by Ansible"
+        confirm_commit: yes
+        confirm: yes
+      tags:
+        - commit
+
+    - name: Verify CoPP configuration
+      junos_command:
+        commands:
+          - "show firewall filter copp-filter"
+          - "show firewall policer"
+      register: copp_status
+      when: copp_enabled
+      tags:
+        - verify
+
+    - name: Display CoPP verification
+      debug:
+        msg: "{{ copp_status.stdout_lines }}"
+      when: copp_enabled
+      tags:
+        - verify
+
+    - name: Verify SSH configuration
+      junos_command:
+        commands:
+          - "show system services ssh"
+      register: ssh_config
+      tags:
+        - verify

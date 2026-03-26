@@ -1,0 +1,180 @@
+---
+# Spine-specific configuration variables
+
+# Device Model
+device_model: "QFX5220-32CD"
+device_type: "spine"
+
+# BGP Configuration
+bgp_asn: "{{ asn_spine }}"
+bgp_role: "spine"
+bgp_cluster_id: "192.0.2.1"
+
+# EVPN Configuration
+evpn_role: "route-reflector"
+evpn_enabled: true
+evpn_type: "vxlan"
+evpn_overlay_target: "{{ asn_spine }}"
+
+# Loopback configuration
+loopback_vlan: 3000
+loopback_subnet_bits: 32
+
+# Underlay BGP Configuration
+underlay_bgp_enabled: true
+underlay_bfd_enabled: true
+bfd_multiplier: 3
+bfd_interval: 300
+
+# Interface configuration
+interface_count: 32
+interface_speed: "100g"
+interface_mtu: 1500
+
+# VLAN configuration for spines
+vlans_enabled: true
+vlan_management_id: 4090
+
+# Port configuration
+port_mode: "trunk"
+default_vlan: 1
+
+# Storm control settings
+storm_control_enabled: true
+storm_control_broadcast_threshold: 100  # pps
+storm_control_unknown_unicast_threshold: 100  # pps
+storm_control_multicast_threshold: 100  # pps
+
+# CoPP (Control Plane Policing)
+copp_enabled: true
+copp_sampling_rate: 1000
+
+# Port security
+port_security_enabled: false  # Usually disabled on spines
+
+# LAG configuration for spine-to-spine connectivity (optional)
+lag_enabled: false
+
+# Static routes (mgmt gateway)
+static_routes:
+  - destination: "0.0.0.0/0"
+    next_hop: "{{ management_gateway }}"
+    metric: 10
+    preference: 5
+
+# BGP Graceful Restart
+graceful_restart_enabled: true
+graceful_restart_timeout: 120
+
+# Route Reflection settings
+route_reflection_cluster_id: "192.0.2.1"
+route_reflection_add_path: true
+
+# OSPF (optional, for lower-level routing if not using BGP only)
+ospf_enabled: false
+
+# MPLS configuration
+mpls_enabled: true
+mpls_interface_mtu: 1600
+
+# L3 VLAN interface configuration
+l3_vlan_enabled: true
+l3_vlan_mtu: 9000
+
+# Syslog and monitoring spine-specific settings
+syslog_file_size: "100m"
+syslog_file_count: 10
+
+# Firewall filter defaults
+firewall_filter_default: "deny"
+firewall_logging_enabled: true
+
+# ISIS configuration (if needed)
+isis_enabled: false
+isis_level: 2
+
+# VXLAN settings
+vxlan_enabled: true
+vxlan_udp_port: 4789
+vxlan_encapsulation: "ethernet"
+
+# Overlay BGP settings for EVPN
+overlay_bgp_enabled: true
+overlay_bgp_multihop: 255
+
+# Communities
+bgp_communities:
+  - name: "fabric"
+    value: "{{ asn_spine }}:1"
+  - name: "internal"
+    value: "{{ asn_spine }}:2"
+
+# Authentication
+bgp_authentication_enabled: true
+bgp_auth_key: "{{ vault_bgp_auth_key }}"
+
+# Prefix-lists for filtering
+prefix_lists:
+  spine_loopback:
+    - prefix: "192.0.2.0/26"
+      action: "accept"
+      sequence: 10
+  fabric_vlans:
+    - prefix: "10.0.0.0/8"
+      action: "accept"
+      sequence: 10
+
+# Route policies
+route_policies:
+  - name: "SPINE-EXPORT"
+    terms:
+      - name: "accept-loopbacks"
+        from: "protocol direct"
+        then: "accept"
+  - name: "SPINE-IMPORT"
+    terms:
+      - name: "accept-all"
+        then: "accept"
+
+# Max paths for load balancing
+bgp_max_paths: 32
+
+# Fast Reroute (FRR) configuration
+frr_enabled: true
+frr_link_protection: true
+frr_node_protection: false
+
+# Monitoring spine-specific metrics
+monitor_bgp_sessions: true
+monitor_interface_utilization: true
+monitor_control_plane: true
+monitor_forwarding_throughput: true
+
+# Juniper-specific platform tuning
+junos_max_flows: 32000
+junos_forwarding_cache_size: "16m"
+junos_cos_profiles: "standard"
+
+# Interface naming convention
+interface_naming:
+  ge: "GigabitEthernet"
+  xe: "TenGigabitEthernet"
+  et: "FortyGigabitEthernet"
+  et3: "HundredGigabitEthernet"
+
+# Jumbo frame support
+jumbo_frames_enabled: true
+jumbo_frame_size: 9192
+
+# Rollback/Commit configuration
+commit_confirmed_timeout: 10
+rollback_on_error: true
+
+# Backup and restore settings
+config_backup_interval_hours: 6
+config_backup_before_change: true
+
+# Temperature and power monitoring
+hardware_monitoring_enabled: true
+temperature_threshold_warning: 55
+temperature_threshold_critical: 65

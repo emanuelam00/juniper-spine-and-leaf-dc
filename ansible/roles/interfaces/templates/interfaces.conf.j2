@@ -1,0 +1,124 @@
+{# Interface configuration template #}
+
+interfaces {
+    {# Loopback Interface #}
+    lo0 {
+        description "{{ device_type | upper }} Loopback";
+        unit 0 {
+            family inet {
+                address {{ loopback_ip }}/{{ loopback_subnet }};
+            }
+        }
+    }
+
+    {# Management Interface #}
+    em0 {
+        description "Management Interface";
+        unit 0 {
+            family inet {
+                address {{ management_ip }}/24;
+            }
+        }
+    }
+
+{% if device_type == "spine" %}
+    {# Spine: P2P interfaces to leaves #}
+{% for interface in interfaces %}
+{% if interface.name.startswith('ge-') and interface.ip_address is defined %}
+    {{ interface.name }} {
+        description "{{ interface.description }}";
+        speed {{ interface.speed }};
+        mtu {{ interface.mtu }};
+        link-mode full-duplex;
+        unit 0 {
+            family inet {
+                address {{ interface.ip_address }}/{{ interface.netmask | ipaddr('prefix') }};
+                mtu {{ interface.mtu }};
+            }
+        }
+    }
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if device_type == "leaf" %}
+    {# Leaf: Server-facing ports and uplinks #}
+{% for interface in interfaces %}
+{% if interface.name.startswith('ge-') %}
+{% if interface.mode is defined and interface.mode == "access" %}
+    {{ interface.name }} {
+        description "{{ interface.description }}";
+        speed {{ interface.speed }};
+        mtu {{ interface.mtu }};
+        unit 0 {
+            family ethernet-switching {
+                interface-mode access;
+                vlan members {{ interface.access_vlan }};
+            }
+        }
+    }
+{% elif interface.ip_address is defined %}
+    {{ interface.name }} {
+        description "{{ interface.description }}";
+        speed {{ interface.speed }};
+        mtu {{ interface.mtu }};
+        link-mode full-duplex;
+        unit 0 {
+            family inet {
+                address {{ interface.ip_address }}/{{ interface.netmask | ipaddr('prefix') }};
+                mtu {{ interface.mtu }};
+            }
+        }
+    }
+{% endif %}
+{% endif %}
+{% endfor %}
+
+    {# Leaf: IRB (VLAN gateway) interfaces #}
+    irb {
+{% for vlan_if in vlan_interfaces %}
+        unit {{ vlan_if.vlan_id }} {
+            description "{{ vlan_if.description }}";
+            family inet {
+                address {{ vlan_if.ip_address }}/{{ vlan_if.netmask | ipaddr('prefix') }};
+            }
+        }
+{% endfor %}
+    }
+{% endif %}
+}
+
+{% if device_type == "leaf" %}
+vlans {
+{% for vlan in vlans %}
+    {{ vlan.name }} {
+        description "{{ vlan.description }}";
+        vlan-id {{ vlan.vlan_id }};
+        l3-interface irb.{{ vlan.vlan_id }};
+    }
+{% endfor %}
+}
+{% endif %}
+
+{# BFD Configuration #}
+protocols {
+{% if underlay_bfd_enabled %}
+    bfd {
+{% for interface in interfaces %}
+{% if interface.ip_address is defined and interface.name.startswith('ge-') %}
+        interface {{ interface.name }}.0 {
+            minimum-interval {{ bfd_config.interval }};
+            multiplier {{ bfd_config.multiplier }};
+        }
+{% endif %}
+{% endfor %}
+    }
+{% endif %}
+
+    {# LLDP Configuration #}
+    lldp {
+        interval 10;
+        transmit-delay 5;
+        hold-multiplier 4;
+    }
+}

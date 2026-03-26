@@ -1,0 +1,202 @@
+---
+# Monitoring configuration role
+# Configures: SNMP, syslog, streaming telemetry (gRPC/OpenConfig)
+
+- name: Configure SNMP community
+  junos_config:
+    lines:
+      - "set snmp community {{ snmp_community }} authorization read-only"
+    comment: "Configure SNMP community"
+  no_log: true
+  tags:
+    - snmp
+    - monitoring
+
+- name: Configure SNMP v3
+  junos_config:
+    lines:
+      - "set snmp v3 usm local-engine engine-id {{ snmp_v3_engine_id }}"
+      - "set snmp v3 usm local-engine user {{ snmp_v3_username }} authentication-protocol sha"
+    comment: "Configure SNMP v3 engine"
+  no_log: true
+  tags:
+    - snmp
+    - snmp_v3
+    - monitoring
+
+- name: Configure SNMP system parameters
+  junos_config:
+    lines:
+      - "set snmp description \"{{ device_type | upper }} - {{ hostname }}\""
+      - "set snmp location \"{{ snmp_locations[0] }}\""
+      - "set snmp contact \"{{ snmp_contact }}\""
+    comment: "Configure SNMP system parameters"
+  tags:
+    - snmp
+    - monitoring
+
+- name: Configure SNMP trap group
+  junos_config:
+    lines:
+      - "set snmp trap-group fabric_monitoring version v2c"
+      - "set snmp trap-group fabric_monitoring community {{ snmp_community }}"
+      - "set snmp trap-group fabric_monitoring targets {{ item.address }}"
+    comment: "Configure SNMP trap group"
+  loop: "{{ snmp_trap_targets }}"
+  no_log: true
+  tags:
+    - snmp
+    - traps
+    - monitoring
+
+- name: Configure syslog forwarding
+  junos_config:
+    lines:
+      - "set system syslog host {{ item }} port {{ syslog_port }} facility {{ syslog_facility }} severity {{ syslog_severity }}"
+      - "set system syslog host {{ item }} structured-data"
+      - "set system syslog host {{ item }} log-prefix \"{{ hostname }}\""
+    comment: "Configure syslog forwarding to {{ item }}"
+  loop: "{{ syslog_servers }}"
+  tags:
+    - syslog
+    - logging
+    - monitoring
+
+- name: Configure syslog file rotation
+  junos_config:
+    lines:
+      - "set system syslog file messages size 100m"
+      - "set system syslog file messages any notice"
+      - "set system syslog file messages archive size 100m"
+      - "set system syslog file messages archive files 5"
+    comment: "Configure syslog file rotation"
+  tags:
+    - syslog
+    - logging
+    - monitoring
+
+- name: Enable gRPC for streaming telemetry
+  junos_config:
+    lines:
+      - "set system grpc status on"
+      - "set system grpc max-concurrent-streams 10"
+      - "set system grpc keepalive-time 30"
+    comment: "Enable gRPC for streaming telemetry"
+  when: grpc_enabled
+  tags:
+    - grpc
+    - telemetry
+    - monitoring
+
+- name: Configure OpenConfig metric server
+  junos_config:
+    lines:
+      - "set system telemetry metric-server Telegraf port {{ grpc_port }}"
+      - "set system telemetry metric-server Telegraf grpc max-subscription-entries 10"
+      - "set system telemetry metric-server Telegraf grpc max-concurrent-streams 10"
+    comment: "Configure OpenConfig metric server"
+  when: openconfig_enabled and grpc_enabled
+  tags:
+    - openconfig
+    - telemetry
+    - monitoring
+
+- name: Configure interface statistics monitoring
+  junos_config:
+    lines:
+      - "set system statistics interface all"
+      - "set system statistics ipv4 all"
+      - "set system statistics ipv6 all"
+    comment: "Enable detailed interface statistics"
+  tags:
+    - statistics
+    - monitoring
+
+- name: Configure BGP monitoring
+  junos_config:
+    lines:
+      - "set protocols bgp log-updown"
+      - "set protocols bgp log-updown severity info"
+      - "set protocols bgp family inet unicast damping suppress-limit 4000"
+      - "set protocols bgp family inet unicast damping max-suppress-limit 20000"
+    comment: "Configure BGP monitoring and dampening"
+  tags:
+    - bgp
+    - monitoring
+
+- name: Configure LLDP
+  junos_config:
+    lines:
+      - "set protocols lldp interval 10"
+      - "set protocols lldp transmit-delay 5"
+      - "set protocols lldp hold-multiplier 4"
+    comment: "Configure LLDP for topology discovery"
+  tags:
+    - lldp
+    - discovery
+    - monitoring
+
+- name: Enable system statistics collection
+  junos_config:
+    lines:
+      - "set system statistics traffic interval 10"
+      - "set system statistics cpu interval 10"
+      - "set system statistics memory interval 10"
+    comment: "Enable system statistics collection"
+  tags:
+    - statistics
+    - system
+    - monitoring
+
+- name: Configure event tracing
+  junos_config:
+    lines:
+      - "set system trace options file snmp-trace size 10m"
+      - "set system trace options file snmp-trace files 3"
+      - "set system trace options file bgp-trace size 10m"
+      - "set system trace options file bgp-trace files 3"
+    comment: "Configure system trace files"
+  tags:
+    - tracing
+    - debugging
+    - monitoring
+
+- name: Configure NETCONF notifications
+  junos_config:
+    lines:
+      - "set system netconf notifications"
+      - "set system netconf traceoptions file netconf_trace size 10m"
+      - "set system netconf traceoptions file netconf_trace files 3"
+    comment: "Enable NETCONF notifications"
+  tags:
+    - netconf
+    - notifications
+    - monitoring
+
+- name: Configure system health monitoring
+  junos_config:
+    lines:
+      - "set system health-monitor interval 10"
+      - "set system health-monitor syslog-on-disk-full"
+      - "set system health-monitor disk-space-threshold 90"
+    comment: "Configure system health monitoring"
+  tags:
+    - health
+    - monitoring
+
+- name: Verify monitoring configuration
+  junos_command:
+    commands:
+      - "show snmp"
+      - "show system syslog"
+  register: monitoring_verify
+  tags:
+    - verify
+    - monitoring
+
+- name: Display monitoring verification
+  debug:
+    msg: "Monitoring configuration verified on {{ inventory_hostname }}"
+  tags:
+    - verify
+    - monitoring

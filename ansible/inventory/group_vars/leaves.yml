@@ -1,0 +1,278 @@
+---
+# Leaf-specific configuration variables
+
+# Device Model
+device_model: "QFX5120-48Y"
+device_type: "leaf"
+
+# BGP Configuration
+bgp_role: "leaf"
+
+# EVPN Configuration
+evpn_role: "client"
+evpn_enabled: true
+evpn_type: "vxlan"
+
+# Loopback configuration
+loopback_vlan: 3000
+loopback_subnet_bits: 32
+
+# Underlay BGP Configuration
+underlay_bgp_enabled: true
+underlay_bfd_enabled: true
+bfd_multiplier: 3
+bfd_interval: 300
+
+# Interface configuration
+interface_count: 48
+interface_speed: "25g"
+interface_mtu: 1500
+
+# Server ports configuration
+server_port_profile:
+  - name: "physical_server"
+    speed: "10g"
+    mtu: 1500
+    port_security: true
+    storm_control: true
+  - name: "virtual_server"
+    speed: "10g"
+    mtu: 9000
+    port_security: true
+    storm_control: false
+
+# VLAN configuration for leaves
+vlans_enabled: true
+vlan_management_id: 4090
+
+# VRF Configuration (per-tenant VRFs)
+vrfs:
+  - name: "default"
+    description: "Default VRF for underlay"
+    rd: "{{ asn_leaf_base }}:0"
+    rt: "{{ asn_leaf_base }}:0"
+  - name: "tenant1"
+    description: "Tenant 1 VRF"
+    rd: "{{ asn_leaf_base }}:100"
+    rt: "{{ asn_leaf_base }}:100"
+  - name: "tenant2"
+    description: "Tenant 2 VRF"
+    rd: "{{ asn_leaf_base }}:200"
+    rt: "{{ asn_leaf_base }}:200"
+  - name: "management"
+    description: "Management VRF"
+    rd: "{{ asn_leaf_base }}:999"
+    rt: "{{ asn_leaf_base }}:999"
+
+# VLAN-to-VNI mapping
+vlan_vni_mapping:
+  - vlan: 100
+    vni: 10100
+    vrf: "tenant1"
+    description: "Tenant1-VLAN100"
+  - vlan: 101
+    vni: 10101
+    vrf: "tenant1"
+    description: "Tenant1-VLAN101"
+  - vlan: 200
+    vni: 20100
+    vrf: "tenant2"
+    description: "Tenant2-VLAN100"
+  - vlan: 201
+    vni: 20101
+    vrf: "tenant2"
+    description: "Tenant2-VLAN101"
+  - vlan: 4090
+    vni: 4090
+    vrf: "default"
+    description: "Management"
+
+# ESI (Ethernet Segment Identifier) configuration
+esi_enabled: true
+esi_auto_derive: false
+esi_system_priority: 100
+esi_mac_address: "00:11:22:33:44:{{ inventory_hostname[-2:] }}"
+
+# LAG configuration for multi-homed servers
+lag_enabled: true
+lag_auto_negotiate: true
+lag_lacp_enabled: true
+lag_lacp_timeout: 60
+
+# Port configuration
+port_mode: "access"
+default_vlan: 1
+
+# Access port VLAN assignment (example per host)
+access_ports:
+  - port: "et-0/0/0"
+    vlan: 100
+    description: "Server-Access-1"
+  - port: "et-0/0/1"
+    vlan: 100
+    description: "Server-Access-2"
+
+# Tagged port configuration
+tagged_ports:
+  - port: "et-0/0/46"
+    vlans: [100, 101, 200, 201]
+    description: "Uplink-to-Spine"
+  - port: "et-0/0/47"
+    vlans: [100, 101, 200, 201]
+    description: "Uplink-to-Spine"
+
+# Storm control settings
+storm_control_enabled: true
+storm_control_broadcast_threshold: 1000  # pps
+storm_control_unknown_unicast_threshold: 1000  # pps
+storm_control_multicast_threshold: 1000  # pps
+storm_control_action: "drop"
+
+# Port security settings
+port_security_enabled: true
+port_security_max_addresses: 4
+port_security_violation_action: "log"
+port_security_timeout: 300
+
+# CoPP (Control Plane Policing)
+copp_enabled: true
+copp_sampling_rate: 1000
+
+# Static routes (mgmt gateway + default route)
+static_routes:
+  - destination: "0.0.0.0/0"
+    next_hop: "{{ management_gateway }}"
+    metric: 10
+    preference: 5
+
+# BGP Graceful Restart
+graceful_restart_enabled: true
+graceful_restart_timeout: 120
+
+# OSPF configuration (optional, if used for lower-layer routing)
+ospf_enabled: false
+
+# MPLS configuration
+mpls_enabled: true
+mpls_interface_mtu: 1600
+
+# L3 VLAN interface configuration
+l3_vlan_enabled: true
+l3_vlan_mtu: 9000
+
+# Syslog and monitoring leaf-specific settings
+syslog_file_size: "50m"
+syslog_file_count: 5
+
+# Firewall filter defaults
+firewall_filter_default: "deny"
+firewall_logging_enabled: true
+
+# ISIS configuration (if needed)
+isis_enabled: false
+isis_level: 1
+
+# VXLAN settings
+vxlan_enabled: true
+vxlan_udp_port: 4789
+vxlan_encapsulation: "ethernet"
+vxlan_decapsulation: true
+
+# Overlay BGP settings for EVPN
+overlay_bgp_enabled: true
+overlay_bgp_multihop: 255
+
+# Communities
+bgp_communities:
+  - name: "fabric"
+    value: "{{ asn_leaf_base }}:1"
+  - name: "internal"
+    value: "{{ asn_leaf_base }}:2"
+
+# Authentication
+bgp_authentication_enabled: true
+bgp_auth_key: "{{ vault_bgp_auth_key }}"
+
+# Prefix-lists for filtering
+prefix_lists:
+  leaf_loopback:
+    - prefix: "192.0.2.64/26"
+      action: "accept"
+      sequence: 10
+
+# Route policies for leaf
+route_policies:
+  - name: "LEAF-EXPORT-UNDERLAY"
+    terms:
+      - name: "export-loopback"
+        from: "protocol direct"
+        then: "accept"
+  - name: "LEAF-IMPORT-UNDERLAY"
+    terms:
+      - name: "accept-all"
+        then: "accept"
+
+# Max paths for load balancing
+bgp_max_paths: 32
+
+# Fast Reroute (FRR) configuration
+frr_enabled: true
+frr_link_protection: true
+frr_node_protection: false
+
+# Monitoring leaf-specific metrics
+monitor_bgp_sessions: true
+monitor_interface_utilization: true
+monitor_vlan_statistics: true
+monitor_mac_learning: true
+monitor_spanning_tree: true
+
+# Juniper-specific platform tuning
+junos_max_flows: 16000
+junos_forwarding_cache_size: "8m"
+junos_cos_profiles: "standard"
+
+# Interface naming convention
+interface_naming:
+  ge: "GigabitEthernet"
+  xe: "TenGigabitEthernet"
+  et: "FortyGigabitEthernet"
+
+# Jumbo frame support
+jumbo_frames_enabled: true
+jumbo_frame_size: 9192
+
+# MAC address learning
+mac_limit_enabled: true
+mac_limit_threshold: 4096
+mac_notification_threshold: 3840
+
+# Spanning Tree Protocol (if needed for non-VXLAN links)
+stp_enabled: false
+stp_bridge_priority: 32768
+
+# Dynamic Host Configuration Protocol (DHCP) Relay
+dhcp_relay_enabled: true
+dhcp_relay_servers:
+  - 10.255.0.200
+
+# Rollback/Commit configuration
+commit_confirmed_timeout: 10
+rollback_on_error: true
+
+# Backup and restore settings
+config_backup_interval_hours: 6
+config_backup_before_change: true
+
+# Temperature and power monitoring
+hardware_monitoring_enabled: true
+temperature_threshold_warning: 50
+temperature_threshold_critical: 60
+
+# ARP settings
+arp_learning_enabled: true
+arp_timeout: 600
+
+# IGMP snooping for multicast
+igmp_snooping_enabled: true
+igmp_snooping_vlan_specific: true

@@ -1,0 +1,120 @@
+# Example Fabric Inventory File
+# This file defines all devices in the datacenter fabric for management via NETCONF
+
+fabric:
+  name: "Production Datacenter Fabric"
+  domain_name: "dc.example.com"
+  ntp_servers:
+    - "10.0.100.50"
+    - "10.0.100.51"
+  syslog_hosts:
+    - "10.0.100.100"
+  dns_servers:
+    - "10.0.100.53"
+    - "10.0.100.54"
+  snmp_communities:
+    - name: "public"
+      permission: "read-only"
+    - name: "private"
+      permission: "read-write"
+
+devices:
+  # Spine Devices
+  - hostname: "spine-1"
+    type: "spine"
+    host: "10.0.0.1"
+    management_ip: "10.0.100.101"
+    username: "admin"
+    password: "password123"
+    # sshkey: "/home/user/.ssh/id_rsa"  # Alternative to password
+    loopback_ip: "10.0.0.1"
+    router_id: "10.0.0.1"
+    asn: 65000
+
+  - hostname: "spine-2"
+    type: "spine"
+    host: "10.0.0.2"
+    management_ip: "10.0.100.102"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.0.2"
+    router_id: "10.0.0.2"
+    asn: 65001
+
+  - hostname: "spine-3"
+    type: "spine"
+    host: "10.0.0.3"
+    management_ip: "10.0.100.103"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.0.3"
+    router_id: "10.0.0.3"
+    asn: 65002
+
+  - hostname: "spine-4"
+    type: "spine"
+    host: "10.0.0.4"
+    management_ip: "10.0.100.104"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.0.4"
+    router_id: "10.0.0.4"
+    asn: 65003
+
+  # Leaf Devices (example - first 5 of 60)
+  - hostname: "leaf-1"
+    type: "leaf"
+    host: "10.0.1.1"
+    management_ip: "10.0.100.201"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.1.1"
+    vtep_ip: "10.0.128.1"
+    router_id: "10.0.1.1"
+    asn: 65100
+
+  - hostname: "leaf-2"
+    type: "leaf"
+    host: "10.0.1.2"
+    management_ip: "10.0.100.202"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.1.2"
+    vtep_ip: "10.0.128.2"
+    router_id: "10.0.1.2"
+    asn: 65101
+
+  - hostname: "leaf-3"
+    type: "leaf"
+    host: "10.0.1.3"
+    management_ip: "10.0.100.203"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.1.3"
+    vtep_ip: "10.0.128.3"
+    router_id: "10.0.1.3"
+    asn: 65102
+
+  - hostname: "leaf-4"
+    type: "leaf"
+    host: "10.0.1.4"
+    management_ip: "10.0.100.204"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.1.4"
+    vtep_ip: "10.0.128.4"
+    router_id: "10.0.1.4"
+    asn: 65103
+
+  - hostname: "leaf-5"
+    type: "leaf"
+    host: "10.0.1.5"
+    management_ip: "10.0.100.205"
+    username: "admin"
+    password: "password123"
+    loopback_ip: "10.0.1.5"
+    vtep_ip: "10.0.128.5"
+    router_id: "10.0.1.5"
+    asn: 65104
+
+  # Add remaining 55 leaf devices following the same pattern (leaf-6 through leaf-60)

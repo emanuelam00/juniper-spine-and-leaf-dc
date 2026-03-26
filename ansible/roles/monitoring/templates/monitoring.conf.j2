@@ -1,0 +1,166 @@
+{# Monitoring and observability configuration template #}
+
+system {
+    {# SNMP Configuration #}
+    snmp {
+        description "{{ device_type | upper }} - {{ hostname }}";
+        location "{{ snmp_locations[0] }}";
+        contact "{{ snmp_contact }}";
+
+        community {{ snmp_community }} {
+            authorization read-only;
+        }
+
+        v3 {
+            usm {
+                local-engine {
+                    engine-id {{ snmp_v3_engine_id }};
+                    user {{ snmp_v3_username }} {
+                        authentication-protocol sha;
+                        authentication-password "{{ vault_snmp_v3_password }}";
+                        privacy-protocol aes128;
+                        privacy-password "{{ vault_snmp_v3_password }}";
+                    }
+                }
+            }
+        }
+
+        trap-group fabric_monitoring {
+            version v2c;
+            community {{ snmp_community }};
+            targets {
+{% for target in snmp_trap_targets %}
+                {{ target.address }};
+{% endfor %}
+            }
+        }
+    }
+
+    {# Syslog Configuration #}
+    syslog {
+        host {{ syslog_servers[0] }} {
+            port {{ syslog_port }};
+            facility {{ syslog_facility }};
+            severity {{ syslog_severity }};
+            structured-data;
+            log-prefix "{{ hostname }}";
+        }
+        file messages {
+            any notice;
+            archive {
+                size 100m;
+                files 5;
+            }
+        }
+        file traffic-log {
+            traffic notice;
+            archive {
+                size 50m;
+                files 3;
+            }
+        }
+        file security-log {
+            facility [ auth local0 ];
+            severity critical;
+            archive {
+                size 100m;
+                files 10;
+            }
+        }
+    }
+
+    {# Trace Configuration #}
+    trace {
+        options {
+            file snmp-trace {
+                size 10m;
+                files 3;
+            }
+            file bgp-trace {
+                size 10m;
+                files 3;
+            }
+        }
+    }
+
+    {# System Statistics #}
+    statistics {
+        traffic {
+            interval 10;
+        }
+        cpu {
+            interval 10;
+        }
+        memory {
+            interval 10;
+        }
+        storage {
+            interval 60;
+        }
+    }
+
+    {# Health Monitoring #}
+    health-monitor {
+        interval 10;
+        syslog-on-disk-full;
+        disk-space-threshold 90;
+        chassis-high-temp-threshold 60;
+    }
+
+    {# gRPC Configuration #}
+{% if grpc_enabled %}
+    grpc {
+        status on;
+        max-concurrent-streams 10;
+        keepalive-time 30;
+    }
+{% endif %}
+
+    {# NETCONF Notifications #}
+    netconf {
+        notifications;
+        traceoptions {
+            file netconf_trace {
+                size 10m;
+                files 3;
+            }
+        }
+    }
+
+{% if openconfig_enabled and grpc_enabled %}
+    {# Telemetry Configuration #}
+    telemetry {
+        metric-server Telegraf {
+            port {{ grpc_port }};
+            grpc {
+                max-subscription-entries 10;
+                max-concurrent-streams 10;
+            }
+        }
+    }
+{% endif %}
+}
+
+protocols {
+    {# BGP Monitoring #}
+    bgp {
+        log-updown;
+        family inet unicast {
+            damping {
+                suppress-limit 4000;
+                max-suppress-limit 20000;
+                max-suppress-duration 1800;
+            }
+        }
+    }
+
+    {# LLDP Configuration #}
+    lldp {
+        interval 10;
+        transmit-delay 5;
+        hold-multiplier 4;
+        med {
+            interval 30;
+        }
+    }
+}

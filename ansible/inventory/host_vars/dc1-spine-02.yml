@@ -1,0 +1,133 @@
+---
+# Spine-02 specific configuration
+
+hostname: "dc1-spine-02"
+host_id: 2
+
+# Loopback configuration
+loopback_ip: "192.0.2.2"
+loopback_subnet: "32"
+router_id: "192.0.2.2"
+
+# Management interface
+management_ip: "10.255.0.2"
+management_subnet: "24"
+
+# BGP Configuration
+bgp_asn: "65000"
+bgp_router_id: "192.0.2.2"
+
+# EVPN Route Reflector settings
+evpn_rr_cluster_id: "192.0.2.1"
+evpn_rr_clients:
+  - peer_ip: "192.0.2.65"
+    peer_asn: "65001"
+    description: "dc1-leaf-001"
+  - peer_ip: "192.0.2.66"
+    peer_asn: "65002"
+    description: "dc1-leaf-002"
+  - peer_ip: "192.0.2.67"
+    peer_asn: "65003"
+    description: "dc1-leaf-003"
+  - peer_ip: "192.0.2.68"
+    peer_asn: "65004"
+    description: "dc1-leaf-004"
+
+# Underlay BGP neighbors
+bgp_neighbors:
+  - neighbor_ip: "10.0.4.1"
+    neighbor_asn: "65001"
+    peer_name: "dc1-leaf-001"
+    local_ip: "10.0.4.0"
+    interface: "et-0/0/0"
+    description: "Leaf-001-P2P"
+  - neighbor_ip: "10.0.4.5"
+    neighbor_asn: "65002"
+    peer_name: "dc1-leaf-002"
+    local_ip: "10.0.4.4"
+    interface: "et-0/0/1"
+    description: "Leaf-002-P2P"
+  - neighbor_ip: "10.0.4.9"
+    neighbor_asn: "65003"
+    peer_name: "dc1-leaf-003"
+    local_ip: "10.0.4.8"
+    interface: "et-0/0/2"
+    description: "Leaf-003-P2P"
+  - neighbor_ip: "10.0.4.13"
+    neighbor_asn: "65004"
+    peer_name: "dc1-leaf-004"
+    local_ip: "10.0.4.12"
+    interface: "et-0/0/3"
+    description: "Leaf-004-P2P"
+
+# Interface configuration
+interfaces:
+  - name: "et-0/0/0"
+    description: "Leaf-001-P2P"
+    unit: 0
+    ip_address: "10.0.4.0"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/1"
+    description: "Leaf-002-P2P"
+    unit: 0
+    ip_address: "10.0.4.4"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/2"
+    description: "Leaf-003-P2P"
+    unit: 0
+    ip_address: "10.0.4.8"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/3"
+    description: "Leaf-004-P2P"
+    unit: 0
+    ip_address: "10.0.4.12"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "lo0"
+    description: "Loopback"
+    unit: 0
+    ip_address: "192.0.2.2"
+    netmask: "255.255.255.255"
+    mtu: 65535
+  - name: "em0"
+    description: "Management"
+    unit: 0
+    ip_address: "10.255.0.2"
+    netmask: "255.255.255.0"
+    mtu: 1500
+
+# VLAN interfaces
+vlan_interfaces:
+  - vlan_id: 4090
+    description: "Management VLAN"
+    ip_address: "10.254.0.2"
+    netmask: "255.255.255.0"
+
+# BGP Export policy
+bgp_export_policy:
+  - term_name: "export-loopback-direct"
+    match_protocol: "direct"
+    action: "accept"
+    set_local_preference: 100
+
+# BGP Import policy
+bgp_import_policy:
+  - term_name: "import-all"
+    action: "accept"
+
+# BFD configuration
+bfd_config:
+  multiplier: 3
+  interval: 300
+
+# EVPN configuration
+evpn_config:
+  cluster_id: "192.0.2.1"
+  add_path: "send-receive"

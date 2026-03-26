@@ -1,0 +1,190 @@
+---
+# Leaf-001 specific configuration
+
+hostname: "dc1-leaf-001"
+host_id: 1
+leaf_index: 1
+
+# Loopback configuration
+loopback_ip: "192.0.2.65"
+loopback_subnet: "32"
+router_id: "192.0.2.65"
+
+# Management interface
+management_ip: "10.255.1.1"
+management_subnet: "24"
+
+# BGP Configuration
+bgp_asn: "65001"
+bgp_router_id: "192.0.2.65"
+
+# Underlay BGP neighbors (all 4 spines)
+bgp_neighbors:
+  - neighbor_ip: "10.0.0.0"
+    neighbor_asn: "65000"
+    peer_name: "dc1-spine-01"
+    local_ip: "10.0.0.1"
+    interface: "et-0/0/44"
+    description: "Spine-01-P2P"
+  - neighbor_ip: "10.0.4.0"
+    neighbor_asn: "65000"
+    peer_name: "dc1-spine-02"
+    local_ip: "10.0.4.1"
+    interface: "et-0/0/45"
+    description: "Spine-02-P2P"
+  - neighbor_ip: "10.0.8.0"
+    neighbor_asn: "65000"
+    peer_name: "dc1-spine-03"
+    local_ip: "10.0.8.1"
+    interface: "et-0/0/46"
+    description: "Spine-03-P2P"
+  - neighbor_ip: "10.0.12.0"
+    neighbor_asn: "65000"
+    peer_name: "dc1-spine-04"
+    local_ip: "10.0.12.1"
+    interface: "et-0/0/47"
+    description: "Spine-04-P2P"
+
+# Interface configuration (48 ports)
+interfaces:
+  # Server-facing ports (0-43)
+  - name: "et-0/0/0"
+    description: "Server-001"
+    unit: 0
+    mode: "access"
+    access_vlan: 100
+    mtu: 1500
+    speed: "25g"
+  - name: "et-0/0/1"
+    description: "Server-002"
+    unit: 0
+    mode: "access"
+    access_vlan: 100
+    mtu: 1500
+    speed: "25g"
+  - name: "et-0/0/2"
+    description: "Server-003"
+    unit: 0
+    mode: "access"
+    access_vlan: 101
+    mtu: 1500
+    speed: "25g"
+  - name: "et-0/0/3"
+    description: "Server-004"
+    unit: 0
+    mode: "access"
+    access_vlan: 101
+    mtu: 1500
+    speed: "25g"
+  # Uplink ports to spines (44-47)
+  - name: "et-0/0/44"
+    description: "Spine-01-P2P"
+    unit: 0
+    ip_address: "10.0.0.1"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/45"
+    description: "Spine-02-P2P"
+    unit: 0
+    ip_address: "10.0.4.1"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/46"
+    description: "Spine-03-P2P"
+    unit: 0
+    ip_address: "10.0.8.1"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "et-0/0/47"
+    description: "Spine-04-P2P"
+    unit: 0
+    ip_address: "10.0.12.1"
+    netmask: "255.255.255.252"
+    mtu: 1500
+    speed: "100g"
+  - name: "lo0"
+    description: "Loopback"
+    unit: 0
+    ip_address: "192.0.2.65"
+    netmask: "255.255.255.255"
+    mtu: 65535
+  - name: "em0"
+    description: "Management"
+    unit: 0
+    ip_address: "10.255.1.1"
+    netmask: "255.255.255.0"
+    mtu: 1500
+
+# VLAN interfaces for L3 gateways
+vlan_interfaces:
+  - vlan_id: 100
+    description: "Tenant1-VLAN100-Gateway"
+    ip_address: "10.100.1.1"
+    netmask: "255.255.255.0"
+    vni: 10100
+    vrf: "tenant1"
+  - vlan_id: 101
+    description: "Tenant1-VLAN101-Gateway"
+    ip_address: "10.101.1.1"
+    netmask: "255.255.255.0"
+    vni: 10101
+    vrf: "tenant1"
+  - vlan_id: 4090
+    description: "Management VLAN"
+    ip_address: "10.254.1.1"
+    netmask: "255.255.255.0"
+
+# ESI configuration for multi-homed servers
+esi_config:
+  - esi: "00:11:22:33:44:01"
+    name: "Server-001-LAG"
+    description: "Multi-homed Server 001"
+    interfaces:
+      - "et-0/0/0"
+      - "et-0/0/1"
+    lacp_enabled: true
+
+# VLAN configuration
+vlans:
+  - vlan_id: 100
+    name: "tenant1-vlan100"
+    description: "Tenant 1 VLAN 100"
+    vni: 10100
+  - vlan_id: 101
+    name: "tenant1-vlan101"
+    description: "Tenant 1 VLAN 101"
+    vni: 10101
+  - vlan_id: 4090
+    name: "mgmt"
+    description: "Management VLAN"
+    vni: 4090
+
+# BGP Export policy
+bgp_export_policy:
+  - term_name: "export-loopback-direct"
+    match_protocol: "direct"
+    action: "accept"
+    set_local_preference: 100
+
+# BGP Import policy
+bgp_import_policy:
+  - term_name: "import-all"
+    action: "accept"
+
+# BFD configuration
+bfd_config:
+  multiplier: 3
+  interval: 300
+
+# EVPN configuration
+evpn_config:
+  add_path: "send-receive"
+  import_rt:
+    - "65001:1"
+    - "65001:2"
+  export_rt:
+    - "65001:1"
+    - "65001:2"

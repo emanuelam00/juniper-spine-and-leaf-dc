@@ -1,0 +1,207 @@
+---
+# Deploy interface configuration to all devices
+# Includes: loopbacks, P2P links, LAGs, IRB interfaces, VLANs
+
+- name: Deploy Interface Configuration to Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "30%"
+
+  pre_tasks:
+    - name: Display interface deployment info
+      debug:
+        msg:
+          - "Deploying interfaces to {{ inventory_hostname }}"
+          - "Device Type: {{ device_type }}"
+          - "Interface Count: {{ interface_count }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Configure loopback interface
+      junos_config:
+        lines:
+          - set interfaces lo0 unit 0 family inet address {{ loopback_ip }}/{{ loopback_subnet }}
+          - set interfaces lo0 description "{{ device_type | upper }} Loopback"
+        comment: "Configure loopback interface"
+      tags:
+        - loopback
+        - interfaces
+
+    - name: Configure P2P underlay links for spines
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} description "{{ item.description }}"
+          - set interfaces {{ item.name }} unit 0 family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }}
+          - set interfaces {{ item.name }} unit 0 family inet mtu {{ item.mtu }}
+          - set interfaces {{ item.name }} speed {{ item.speed }}
+          - set interfaces {{ item.name }} mtu {{ item.mtu }}
+          - set interfaces {{ item.name }} link-mode full-duplex
+        comment: "Configure P2P interface {{ item.name }}"
+      loop: "{{ interfaces | selectattr('name', 'match', '^ge-') }}"
+      when: device_type == "spine"
+      tags:
+        - p2p
+        - interfaces
+        - underlay
+
+    - name: Configure P2P underlay links for leaves
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} description "{{ item.description }}"
+          - set interfaces {{ item.name }} unit 0 family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }}
+          - set interfaces {{ item.name }} unit 0 family inet mtu {{ item.mtu }}
+          - set interfaces {{ item.name }} speed {{ item.speed }}
+          - set interfaces {{ item.name }} mtu {{ item.mtu }}
+          - set interfaces {{ item.name }} link-mode full-duplex
+        comment: "Configure P2P interface {{ item.name }}"
+      loop: "{{ interfaces | selectattr('ip_address', 'defined') }}"
+      when:
+        - device_type == "leaf"
+        - "'ge-' in item.name and item.mode is not defined"
+      tags:
+        - p2p
+        - interfaces
+        - underlay
+
+    - name: Configure server-facing access ports on leaves
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} description "{{ item.description }}"
+          - set interfaces {{ item.name }} unit 0 family ethernet-switching interface-mode access
+          - set interfaces {{ item.name }} unit 0 family ethernet-switching vlan members {{ item.access_vlan }}
+          - set interfaces {{ item.name }} speed {{ item.speed }}
+          - set interfaces {{ item.name }} mtu {{ item.mtu }}
+          - set interfaces {{ item.name }} link-mode full-duplex
+        comment: "Configure access port {{ item.name }} on VLAN {{ item.access_vlan }}"
+      loop: "{{ interfaces | selectattr('mode', 'equalto', 'access') }}"
+      when: device_type == "leaf"
+      tags:
+        - access_ports
+        - interfaces
+        - vlans
+
+    - name: Configure management interface
+      junos_config:
+        lines:
+          - set interfaces em0 unit 0 family inet address {{ management_ip }}/{{ management_netmask | ipaddr('prefix') }}
+          - set interfaces em0 description "Management Interface"
+        comment: "Configure management interface"
+      tags:
+        - management
+        - interfaces
+
+    - name: Configure VLANs on leaves
+      junos_config:
+        lines:
+          - set vlans {{ item.name }} vlan-id {{ item.vlan_id }}
+          - set vlans {{ item.name }} description "{{ item.description }}"
+        comment: "Create VLAN {{ item.name }}"
+      loop: "{{ vlans | default([]) }}"
+      when: device_type == "leaf"
+      tags:
+        - vlans
+        - interfaces
+
+    - name: Configure IRB (VLAN) interfaces on leaves
+      junos_config:
+        lines:
+          - set interfaces irb unit {{ item.vlan_id }} family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }}
+          - set interfaces irb unit {{ item.vlan_id }} description "{{ item.description }}"
+          - set vlans {{ item.vlan_id | string }} l3-interface irb.{{ item.vlan_id }}
+        comment: "Configure IRB interface for VLAN {{ item.vlan_id }}"
+      loop: "{{ vlan_interfaces | default([]) }}"
+      when: device_type == "leaf"
+      tags:
+        - irb
+        - vlan_gateways
+        - interfaces
+
+    - name: Configure LAG for multi-homed servers on leaves
+      junos_config:
+        lines:
+          - set interfaces ae{{ loop.index0 }} description "{{ item.name }}"
+          - set interfaces ae{{ loop.index0 }} aggregated-ether-options lacp active
+          - set interfaces ae{{ loop.index0 }} aggregated-ether-options lacp periodic fast
+          - set interfaces ae{{ loop.index0 }} unit 0 family ethernet-switching interface-mode access
+          - set interfaces ae{{ loop.index0 }} unit 0 family ethernet-switching vlan members {{ item.vlan_id | default(1) }}
+        comment: "Configure LAG {{ item.name }}"
+      loop: "{{ esi_config | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: device_type == "leaf" and lag_enabled
+      tags:
+        - lag
+        - esi
+        - interfaces
+
+    - name: Add interfaces to LAG
+      junos_config:
+        lines:
+          - set interfaces {{ item[1] }} ether-options 802.3ad ae{{ loop.index0 }}
+        comment: "Add interface {{ item[1] }} to LAG"
+      loop: "{{ esi_config | default([]) | product(interfaces) | list }}"
+      loop_control:
+        label: "{{ item[0].name }}"
+      when:
+        - device_type == "leaf"
+        - lag_enabled
+        - "item[1] in item[0].interfaces"
+      tags:
+        - lag
+        - esi
+        - interfaces
+
+    - name: Disable unused interfaces
+      junos_config:
+        lines:
+          - set interfaces {{ item }} disable
+        comment: "Disable unused interface {{ item }}"
+      loop:
+        - "et-0/0/31"
+        - "et-0/0/32"
+      when:
+        - device_type == "leaf"
+        - item | int >= 44 or item | int < 0
+      ignore_errors: yes
+      tags:
+        - disable_unused
+        - interfaces
+
+    - name: Configure BFD for underlay
+      junos_config:
+        lines:
+          - set interfaces {{ item.name }} unit 0 family inet address {{ item.ip_address }}/{{ item.netmask | ipaddr('prefix') }} preferred
+          - set protocols bfd interface {{ item.name }}.0 minimum-interval {{ bfd_config.interval }}
+          - set protocols bfd interface {{ item.name }}.0 multiplier {{ bfd_config.multiplier }}
+        comment: "Configure BFD on {{ item.name }}"
+      loop: "{{ interfaces | selectattr('ip_address', 'defined') }}"
+      when: underlay_bfd_enabled
+      tags:
+        - bfd
+        - interfaces
+        - underlay
+
+  post_tasks:
+    - name: Commit interface configuration
+      junos_config:
+        comment: "Interface configuration deployment by Ansible"
+        confirm_commit: yes
+        confirm: yes
+      tags:
+        - commit
+
+    - name: Verify interface status
+      junos_command:
+        commands:
+          - "show interfaces terse"
+          - "show vlans"
+      register: interface_status
+      tags:
+        - verify
+
+    - name: Display interface verification
+      debug:
+        msg: "{{ interface_status.stdout_lines[0][0:10] }}"
+      tags:
+        - verify

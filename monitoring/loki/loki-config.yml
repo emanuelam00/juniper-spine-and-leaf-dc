@@ -1,0 +1,109 @@
+# Loki Configuration for Juniper Fabric Log Aggregation
+# Production-ready log storage and retrieval
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: info
+  log_format: json
+
+ingester:
+  chunk_idle_period: 3m
+  max_chunk_age: 1h
+  max_streams_per_user: 10000
+  chunk_retain_period: 1m
+
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  ingestion_rate_mb: 100
+  ingestion_burst_size_mb: 150
+  max_streams_per_user: 10000
+  max_global_streams_per_user: 50000
+  max_cache_freshness_per_query: 10m
+  split_queries_by_line: false
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  filesystem:
+    directory: /loki/chunks
+  index_cache_validity: 5m
+  cache_config:
+    enable_fifocache: true
+    default_validity: 10m
+    background:
+      writeback_goroutines: 10
+      writeback_delay: 5s
+    memcached:
+      batch_size: 1024
+      parallelism: 100
+    memcached_client:
+      addresses: localhost
+      consistent_hash: true
+      update_interval: 1m
+      max_idle_conns: 100
+
+chunk_store_config:
+  max_look_back_period: 0s
+  chunk_cache_config:
+    enable_fifocache: true
+    memcached:
+      batch_size: 1024
+      parallelism: 100
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 720h
+  poll_interval: 10m
+
+querier:
+  max_concurrent: 40
+  query_timeout: 5m
+
+query_range:
+  align_queries_with_step: true
+  cache_results: true
+  max_cache_freshness_per_query: 10m
+  cache_config:
+    enable_fifocache: true
+    memcached:
+      batch_size: 1024
+      parallelism: 100
+    memcached_client:
+      addresses: localhost
+      consistent_hash: true
+      update_interval: 1m
+      max_idle_conns: 100
+
+ruler:
+  enable_api: true
+  enable_alertmanager_v2: true
+  alertmanager_url: http://alertmanager:9093
+  external_url: http://loki:3100
+  rule_path: /loki/rules
+  rules_for_state_alerting:
+    - evaluating
+    - firing
+  poll_interval: 1m
+
+runtime_config:
+  period: 10s
+  file: /loki/loki-runtime.yaml
+
+# Tracing configuration (optional)
+tracing:
+  enabled: false
+
+# Multi-tenant support (disabled)
+multitenancy_enabled: false

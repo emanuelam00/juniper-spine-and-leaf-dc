@@ -1,0 +1,192 @@
+{# Routing configuration template #}
+
+routing-options {
+    router-id {{ router_id }};
+    autonomous-system {{ bgp_asn }};
+
+    graceful-restart {
+        restart-duration 120;
+        stale-route-timeout 600;
+    }
+
+    forwarding-table {
+        export-configure;
+        ecmp-fast-reroute;
+        load-balance per-flow;
+    }
+}
+
+protocols {
+    bgp {
+        log-updown;
+
+{% if device_type == "spine" %}
+        {# Spine BGP Underlay Group #}
+        group underlay {
+            type external;
+            local-as {{ bgp_asn }};
+            authentication-key "{{ vault_bgp_auth_key }}";
+            import import-underlay;
+            export export-underlay;
+            bfd-liveness-detection {
+                minimum-interval {{ bfd_config.interval }};
+                multiplier {{ bfd_config.multiplier }};
+            }
+            multipath;
+            add-path {
+                receive;
+                send path-count 32;
+            }
+            family inet unicast;
+
+{% for neighbor in bgp_neighbors %}
+            neighbor {{ neighbor.neighbor_ip }} {
+                description "{{ neighbor.description }}";
+                local-address {{ neighbor.local_ip }};
+            }
+{% endfor %}
+        }
+
+        {# Spine EVPN RR Group #}
+        group evpn {
+            type internal;
+            local-as {{ bgp_asn }};
+            cluster {{ evpn_rr_cluster_id }};
+            family evpn signaling;
+            multipath;
+            add-path {
+                receive;
+                send path-count 32;
+            }
+
+{% for client in evpn_rr_clients %}
+            neighbor {{ client.peer_ip }} {
+                description "{{ client.description }}";
+                peer-as {{ client.peer_asn }};
+            }
+{% endfor %}
+        }
+{% endif %}
+
+{% if device_type == "leaf" %}
+        {# Leaf BGP Underlay Group #}
+        group underlay {
+            type external;
+            local-as {{ bgp_asn }};
+            authentication-key "{{ vault_bgp_auth_key }}";
+            import import-underlay;
+            export export-underlay;
+            bfd-liveness-detection {
+                minimum-interval {{ bfd_config.interval }};
+                multiplier {{ bfd_config.multiplier }};
+            }
+            multipath;
+            add-path {
+                receive;
+                send path-count 32;
+            }
+            family inet unicast;
+
+{% for neighbor in bgp_neighbors %}
+            neighbor {{ neighbor.neighbor_ip }} {
+                description "{{ neighbor.description }}";
+                local-address {{ neighbor.local_ip }};
+            }
+{% endfor %}
+        }
+
+        {# Leaf EVPN Client Group #}
+        group evpn {
+            type internal;
+            local-as {{ bgp_asn }};
+            family evpn signaling;
+            multipath;
+            add-path {
+                receive;
+                send path-count 32;
+            }
+
+            neighbor 192.0.2.1 {
+                description "Spine-RR-1";
+                peer-as {{ asn_spine }};
+            }
+            neighbor 192.0.2.2 {
+                description "Spine-RR-2";
+                peer-as {{ asn_spine }};
+            }
+        }
+{% endif %}
+    }
+
+{% if evpn_enabled and device_type == "leaf" %}
+    {# EVPN Configuration #}
+    evpn {
+        encapsulation vxlan;
+        extended-vni-list all;
+    }
+{% endif %}
+
+{% if underlay_bfd_enabled %}
+    {# BFD Configuration #}
+    bfd {
+{% for interface in interfaces %}
+{% if interface.ip_address is defined and interface.name.startswith('ge-') %}
+        interface {{ interface.name }}.0 {
+            minimum-interval {{ bfd_config.interval }};
+            multiplier {{ bfd_config.multiplier }};
+        }
+{% endif %}
+{% endfor %}
+    }
+{% endif %}
+
+    {# LLDP for Topology Discovery #}
+    lldp {
+        interval 10;
+        transmit-delay 5;
+        hold-multiplier 4;
+    }
+}
+
+{# Policy Options #}
+policy-options {
+    {# Export Policy #}
+    policy-statement export-underlay {
+        term 1 {
+            from protocol direct;
+            then accept;
+        }
+        term 2 {
+            then reject;
+        }
+    }
+
+    {# Import Policy #}
+    policy-statement import-underlay {
+        term 1 {
+            then accept;
+        }
+    }
+}
+
+{% if device_type == "leaf" %}
+{# Switch Configuration #}
+switch-options {
+    vtep-source-interface lo0.0;
+    route-distinguisher {{ bgp_asn }}:{{ host_id }};
+    vrf-import target:{{ bgp_asn }}:1;
+    vrf-export target:{{ bgp_asn }}:1;
+}
+
+{# VRF Routing Instances #}
+{% for vrf in vrfs %}
+routing-instances {
+    {{ vrf.name }} {
+        instance-type vrf;
+        description "{{ vrf.description }}";
+        route-distinguisher {{ vrf.rd }};
+        vrf-target target:{{ vrf.rt }};
+    }
+}
+{% endfor %}
+{% endif %}

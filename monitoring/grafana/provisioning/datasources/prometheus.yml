@@ -1,0 +1,95 @@
+# Grafana Datasource Provisioning - Prometheus
+# Production-ready datasource configuration
+
+apiVersion: 1
+
+datasources:
+  # ==========================================
+  # PROMETHEUS - Time-Series Metrics
+  # ==========================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      cachingProxyUrl: ""
+      manageAlerts: true
+      alertmanagerUid: alertmanager
+    secureJsonData: {}
+    version: 1
+
+  # ==========================================
+  # LOKI - Logs Datasource
+  # ==========================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: true
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - name: "Device"
+          matcherRegex: 'device[_-]name["\s=]+([a-zA-Z0-9\-_]+)'
+          url: "http://localhost:3000/d/fabric-detail?var-device=$1"
+        - name: "Trace ID"
+          matcherRegex: 'traceId[="]([^\s"]+)'
+          url: "http://jaeger:16686/search?service=fabric-monitor&limit=20&lookback=1h&minDuration=&maxDuration=&tags=%7B%22trace_id%22:%22$1%22%7D"
+    secureJsonData: {}
+    version: 1
+
+  # ==========================================
+  # INFLUXDB - Time-Series (Optional)
+  # ==========================================
+  - name: InfluxDB
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8086
+    isDefault: false
+    editable: true
+    database: fabric_metrics
+    jsonData:
+      version: Flux
+      organization: datacenter
+      defaultBucket: fabric-metrics
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}
+    version: 1
+
+  # ==========================================
+  # ALERTMANAGER - Alerts State
+  # ==========================================
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    isDefault: false
+    editable: true
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: false
+    secureJsonData: {}
+    version: 1
+
+  # ==========================================
+  # ELASTICSEARCH - Log Storage (Optional)
+  # ==========================================
+  - name: Elasticsearch
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    isDefault: false
+    editable: true
+    database: "[fabric-logs-]YYYY.MM.DD"
+    jsonData:
+      timeField: "@timestamp"
+      esVersion: "7.10.0"
+      maxConcurrentShardRequests: 256
+      logMessageField: message
+      logLevelField: level
+    secureJsonData: {}
+    version: 1

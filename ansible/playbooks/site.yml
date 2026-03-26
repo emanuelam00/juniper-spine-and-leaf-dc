@@ -1,0 +1,127 @@
+---
+# Master playbook for Juniper spine-leaf datacenter fabric deployment
+# This orchestrates the complete fabric configuration through all roles
+
+- name: Configure Juniper Spine-Leaf Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: 0  # Parallel execution with forks limit from ansible.cfg
+
+  pre_tasks:
+    - name: Validate Ansible version
+      assert:
+        that:
+          - ansible_version.major >= 2
+          - ansible_version.minor >= 9
+        fail_msg: "Ansible 2.9+ required"
+      tags:
+        - always
+
+    - name: Check NETCONF connectivity
+      junos_command:
+        commands:
+          - "request shell execute 'cli -c \"show version | head\"'"
+      register: netconf_check
+      tags:
+        - connectivity
+
+    - name: Create backup directory
+      file:
+        path: "{{ backup_path }}"
+        state: directory
+        mode: 0755
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - backup
+
+    - name: Display deployment summary
+      debug:
+        msg:
+          - "Deploying to: {{ inventory_hostname }}"
+          - "Device Model: {{ device_model }}"
+          - "Device Type: {{ device_type }}"
+          - "Management IP: {{ management_ip }}"
+          - "Loopback IP: {{ loopback_ip }}"
+      tags:
+        - always
+
+  roles:
+    - name: base_config
+      tags:
+        - base
+        - config
+      vars:
+        role_description: "Base system configuration (hostname, users, NTP, syslog)"
+
+    - name: interfaces
+      tags:
+        - interfaces
+        - config
+      vars:
+        role_description: "Interface configuration (loopbacks, P2P, VLANs, IRBs)"
+
+    - name: routing
+      tags:
+        - routing
+        - bgp
+        - evpn
+        - config
+      vars:
+        role_description: "BGP underlay and EVPN overlay configuration"
+
+    - name: security
+      tags:
+        - security
+        - hardening
+        - config
+      vars:
+        role_description: "Security hardening (CoPP, port security, firewall filters)"
+
+    - name: monitoring
+      tags:
+        - monitoring
+        - telemetry
+        - config
+      vars:
+        role_description: "Monitoring and observability (SNMP, syslog, streaming telemetry)"
+
+  post_tasks:
+    - name: Validate fabric connectivity
+      include_tasks: ../tasks/validate_bgp.yml
+      tags:
+        - validate
+        - post_config
+
+    - name: Display configuration summary
+      debug:
+        msg:
+          - "Configuration applied successfully to {{ inventory_hostname }}"
+          - "BGP ASN: {{ bgp_asn }}"
+          - "Loopback: {{ loopback_ip }}"
+          - "Management: {{ management_ip }}"
+      tags:
+        - always
+
+    - name: Archive device configuration
+      shell: |
+        scp -P {{ ansible_port }} \
+            -o StrictHostKeyChecking=no \
+            {{ ansible_user }}@{{ ansible_host }}:/var/db/config/juniper.conf.gz \
+            {{ backup_path }}/{{ inventory_hostname }}_config_$(date +%Y%m%d_%H%M%S).conf.gz
+      delegate_to: localhost
+      ignore_errors: yes
+      tags:
+        - backup
+
+  handlers:
+    - name: commit configuration
+      junos_config:
+        comment: "Automated configuration commit by Ansible"
+        commit: yes
+      listen: "commit changes"
+
+    - name: rollback on error
+      junos_config:
+        rollback: 0
+      listen: "rollback changes"

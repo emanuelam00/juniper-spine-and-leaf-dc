@@ -1,0 +1,8 @@
+ncclient==0.6.14
+Jinja2==3.1.2
+PyYAML==6.0
+Rich==13.7.0
+paramiko==3.4.0
+requests==2.31.0
+lxml==4.9.3
+netaddr==0.10.1

@@ -1,0 +1,191 @@
+# Promtail Configuration for Syslog to Loki
+# Production-ready syslog ingestion and log processing
+
+server:
+  http_listen_port: 3101
+  grpc_listen_port: 0
+  log_level: info
+  log_format: json
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    backoff_config:
+      min_period: 100ms
+      max_period: 10s
+      max_retries: 5
+    batcher_config:
+      max_batch_size: 1572864
+      max_wait_period: 1s
+    timeout: 10s
+
+positions:
+  filename: /tmp/positions.yaml
+  sync_period: 10s
+
+scrape_configs:
+  # ==========================================
+  # SYSLOG INPUT - Network Devices
+  # ==========================================
+  - job_name: syslog-network-devices
+    syslog:
+      listen_address: 0.0.0.0:514
+      labels:
+        job: syslog
+        source: network_devices
+    relabel_configs:
+      - source_labels: ['__syslog_message_hostname']
+        target_label: hostname
+      - source_labels: ['__syslog_message_app_name']
+        target_label: app
+      - source_labels: ['__syslog_message_severity']
+        target_label: severity
+      - source_labels: ['__syslog_message_facility']
+        target_label: facility
+      # Extract device name from syslog hostname
+      - source_labels: [hostname]
+        regex: '(spine|leaf)-(\d+)'
+        replacement: '${1}-0${2}'
+        target_label: device_name
+      - source_labels: [hostname]
+        regex: '(spine|leaf)-(\d+).*'
+        replacement: '${1}'
+        target_label: device_type
+      # Parse syslog severity to numbers
+      - source_labels: [severity]
+        map:
+          'EMERG': '0'
+          'ALERT': '1'
+          'CRIT': '2'
+          'ERR': '3'
+          'WARNING': '4'
+          'NOTICE': '5'
+          'INFO': '6'
+          'DEBUG': '7'
+        target_label: severity_level
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            msg: message
+      - labels:
+          hostname:
+          severity:
+          facility:
+          app:
+      - multiline:
+          line_start_pattern: '^\w+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}'
+      - regex:
+          expression: '(?P<facility>\w+)\[(?P<pid>\d+)\]: (?P<event_type>\w+): (?P<event_msg>.*)'
+          on_error: keep
+
+  # ==========================================
+  # SYSLOG INPUT - FortiGate Firewalls
+  # ==========================================
+  - job_name: syslog-fortinet
+    syslog:
+      listen_address: 0.0.0.0:1514
+      labels:
+        job: syslog
+        source: firewall
+    relabel_configs:
+      - source_labels: ['__syslog_message_hostname']
+        target_label: hostname
+      - source_labels: ['__syslog_message_app_name']
+        target_label: app
+      - source_labels: ['__syslog_message_severity']
+        target_label: severity
+      - source_labels: [hostname]
+        regex: 'fortigate-(\d+)'
+        replacement: 'fw-0${1}'
+        target_label: device_name
+      - static_labels:
+          device_type: firewall
+    pipeline_stages:
+      - json:
+          expressions:
+            timestamp: timestamp
+            event_type: eventtype
+            msg: message
+      - labels:
+          hostname:
+          severity:
+
+  # ==========================================
+  # FILE INPUT - Local Application Logs
+  # ==========================================
+  - job_name: system_logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: local_system
+          hostname: telegraf-collector-01
+    file_sd_configs:
+      - files:
+          - '/var/log/*.log'
+    pipeline_stages:
+      - multiline:
+          line_start_pattern: '^\d{4}-\d{2}-\d{2}|^\w+\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}'
+      - regex:
+          expression: '(?P<timestamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.Z+-]*\d*) (?P<level>\w+)'
+      - labels:
+          level:
+
+  # ==========================================
+  # JOURNALD INPUT - Container Logs
+  # ==========================================
+  - job_name: journald_input
+    journal:
+      path: /var/log/journal
+      labels:
+        job: journald
+      matches:
+        - _SYSTEMD_UNIT=docker.service
+    relabel_configs:
+      - source_labels: ['__journal__systemd_unit']
+        target_label: unit
+      - source_labels: ['__journal_hostname']
+        target_label: hostname
+    pipeline_stages:
+      - multiline:
+          line_start_pattern: '^\d{4}-\d{2}-\d{2}T'
+      - json:
+          expressions:
+            timestamp: __REALTIME_TIMESTAMP
+            message: MESSAGE
+            level: PRIORITY
+      - labels:
+          unit:
+          hostname:
+
+# ==========================================
+# LIMITS & PERFORMANCE
+# ==========================================
+
+# Optional: Set limits for different clients
+# server:
+#   http_server_read_timeout: 120s
+#   http_server_write_timeout: 120s
+#   http_server_idle_timeout: 120s
+#   grpc_server_max_recv_msg_size: 4194304
+#   grpc_server_max_send_msg_size: 4194304
+
+# ==========================================
+# TARGET ASSIGMENT & RELABELING REFERENCE
+# ==========================================
+#
+# __syslog_message_hostname - Extracted hostname from syslog
+# __syslog_message_app_name - Application name from syslog tag
+# __syslog_message_severity - Severity level (EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG)
+# __syslog_message_facility - Syslog facility (LOCAL0-7, USER, DAEMON, etc.)
+# __journal_* - Fields from systemd journal
+#
+# Label patterns:
+# device_name - Extracted device hostname/name
+# device_type - spine, leaf, firewall, etc.
+# severity - Log severity level
+# facility - Syslog facility
+# hostname - Source hostname
+#
+# ==========================================

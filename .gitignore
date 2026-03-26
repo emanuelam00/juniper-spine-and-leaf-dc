@@ -1,0 +1,171 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pyc
+
+# Ansible
+*.retry
+ansible.log
+vault-password.txt
+.ansible/
+roles/requirements.txt.lock
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+# terraform.tfvars - uncomment if contains secrets
+# terraform.tfvars
+# terraform.tfvars.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.tfplan
+tfplan
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.sublime-project
+.sublime-workspace
+*.iml
+*.sublime-settings
+.netrc
+*.code-workspace
+.editorconfig
+
+# Credentials and Secrets
+credentials.yml
+credentials.yaml
+secrets.yml
+secrets.yaml
+.env
+.env.local
+.env.*.local
+inventory/credentials.yml
+inventory/secrets.yml
+vault-password
+private_key*
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+ssh_config
+authorized_keys
+
+# Device Backups and Outputs
+configs/backup/
+configs/*.bak
+*.backup
+*.old
+device_backups/
+output/
+results/
+logs/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE-specific
+.vscode/settings.json
+.idea/workspace.xml
+.idea/tasks.xml
+*.iml
+
+# Monitoring and Logging
+prometheus/data/
+prometheus/*.db
+grafana/data/
+telegraf/*.db
+*.log
+logs/
+monitoring/logs/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+.docker/
+
+# Node (if using node-based tooling)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Misc
+*.tmp
+*.bak
+.cache/
+temp/
+tmp/
+*.pid
+
+# Network device config snippets (for sensitivity)
+network_configs/sensitive/
+
+# CI/CD
+.github/workflows/secrets/
+.gitlab-ci.yml.secret
+.circleci/config.secret.yml
+
+# Temporary deployment files
+*.temp
+*.staging
+*.test
+deployment/temp/
+
+# Packer
+packer-manifest.json
+crash.log
+
+# Generated configs (optional - uncomment if you want to track them)
+# !configs/spine/*.conf
+# !configs/leaf/*.conf
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Windows
+*.lnk

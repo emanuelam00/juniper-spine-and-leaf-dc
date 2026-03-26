@@ -1,0 +1,260 @@
+---
+# Backup running configurations from all devices
+# Saves configs locally and to a centralized backup location
+
+- name: Backup Datacenter Fabric Configurations
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "50%"
+
+  pre_tasks:
+    - name: Create backup directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: 0755
+      delegate_to: localhost
+      run_once: yes
+      loop:
+        - "{{ backup_path }}"
+        - "{{ backup_path }}/configs"
+        - "{{ backup_path }}/full-backups"
+        - "{{ backup_path }}/diffs"
+      tags:
+        - setup
+        - backup
+
+    - name: Display backup info
+      debug:
+        msg:
+          - "Backing up {{ inventory_hostname }}"
+          - "Device Type: {{ device_type }}"
+          - "Backup Path: {{ backup_path }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Retrieve running configuration via NETCONF
+      junos_command:
+        commands:
+          - "show configuration | display xml"
+      register: config_xml
+      tags:
+        - backup
+        - config
+
+    - name: Retrieve running configuration in text format
+      junos_command:
+        commands:
+          - "show configuration | display set"
+      register: config_set
+      tags:
+        - backup
+        - config
+
+    - name: Save configuration in XML format
+      copy:
+        content: "{{ config_xml.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_config_$(date +%Y%m%d_%H%M%S).xml"
+      delegate_to: localhost
+      tags:
+        - backup
+        - xml
+
+    - name: Save configuration in set format
+      copy:
+        content: "{{ config_set.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_config_$(date +%Y%m%d_%H%M%S).set"
+      delegate_to: localhost
+      tags:
+        - backup
+        - set_format
+
+    - name: Retrieve device facts for documentation
+      junos_facts:
+        gather_subset: all
+      register: device_facts
+      tags:
+        - backup
+        - facts
+
+    - name: Save device facts
+      copy:
+        content: "{{ device_facts | to_nice_json }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_facts_$(date +%Y%m%d_%H%M%S).json"
+      delegate_to: localhost
+      tags:
+        - backup
+        - facts
+
+    - name: Get current BGP configuration
+      junos_command:
+        commands:
+          - "show configuration protocols bgp"
+      register: bgp_config
+      when: inventory_hostname in groups['dc_fabric']
+      tags:
+        - backup
+        - bgp
+
+    - name: Save BGP configuration
+      copy:
+        content: "{{ bgp_config.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_bgp_$(date +%Y%m%d_%H%M%S).conf"
+      delegate_to: localhost
+      when: bgp_config is defined
+      tags:
+        - backup
+        - bgp
+
+    - name: Get interface configurations
+      junos_command:
+        commands:
+          - "show configuration interfaces"
+      register: interfaces_config
+      tags:
+        - backup
+        - interfaces
+
+    - name: Save interface configuration
+      copy:
+        content: "{{ interfaces_config.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_interfaces_$(date +%Y%m%d_%H%M%S).conf"
+      delegate_to: localhost
+      tags:
+        - backup
+        - interfaces
+
+    - name: Get routing configuration
+      junos_command:
+        commands:
+          - "show configuration routing-options"
+      register: routing_config
+      tags:
+        - backup
+        - routing
+
+    - name: Save routing configuration
+      copy:
+        content: "{{ routing_config.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_routing_$(date +%Y%m%d_%H%M%S).conf"
+      delegate_to: localhost
+      tags:
+        - backup
+        - routing
+
+    - name: Create tarball of all configs
+      archive:
+        path: "{{ backup_path }}/configs"
+        dest: "{{ backup_path }}/full-backups/backup_$(date +%Y%m%d_%H%M%S).tar.gz"
+        format: gz
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - backup
+        - archive
+
+    - name: Compare with previous configuration (if exists)
+      shell: |
+        if [ -f "{{ backup_path }}/configs/{{ inventory_hostname }}_previous.conf" ]; then
+          diff -u "{{ backup_path }}/configs/{{ inventory_hostname }}_previous.conf" \
+                  "{{ backup_path }}/configs/{{ inventory_hostname }}_current.conf" > \
+                  "{{ backup_path }}/diffs/{{ inventory_hostname }}_$(date +%Y%m%d_%H%M%S).diff" || true
+        fi
+      delegate_to: localhost
+      ignore_errors: yes
+      tags:
+        - backup
+        - diff
+
+    - name: Get syslog configuration
+      junos_command:
+        commands:
+          - "show configuration system syslog"
+      register: syslog_config
+      tags:
+        - backup
+        - syslog
+
+    - name: Save syslog configuration
+      copy:
+        content: "{{ syslog_config.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_syslog_$(date +%Y%m%d_%H%M%S).conf"
+      delegate_to: localhost
+      tags:
+        - backup
+        - syslog
+
+    - name: Get SNMP configuration
+      junos_command:
+        commands:
+          - "show configuration snmp"
+      register: snmp_config
+      tags:
+        - backup
+        - snmp
+
+    - name: Save SNMP configuration
+      copy:
+        content: "{{ snmp_config.stdout_lines[0] | join('\n') }}"
+        dest: "{{ backup_path }}/configs/{{ inventory_hostname }}_snmp_$(date +%Y%m%d_%H%M%S).conf"
+      delegate_to: localhost
+      tags:
+        - backup
+        - snmp
+
+  post_tasks:
+    - name: List backed up files
+      find:
+        path: "{{ backup_path }}/configs"
+        patterns: "{{ inventory_hostname }}_*"
+        age: 10m
+      register: backup_files
+      delegate_to: localhost
+      tags:
+        - verify
+
+    - name: Display backed up files
+      debug:
+        msg: "Backed up files for {{ inventory_hostname }}: {{ backup_files.files | map(attribute='path') | list }}"
+      tags:
+        - verify
+
+    - name: Create backup summary
+      template:
+        src: backup_summary.j2
+        dest: "{{ backup_path }}/BACKUP_SUMMARY_{{ ansible_date_time.iso8601_basic_short }}.txt"
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - summary
+
+    - name: Validate backup integrity
+      shell: |
+        for file in {{ backup_path }}/configs/{{ inventory_hostname }}_*; do
+          if [ -s "$file" ]; then
+            echo "OK: $file"
+          else
+            echo "ERROR: Empty backup file $file"
+          fi
+        done
+      delegate_to: localhost
+      register: backup_validation
+      tags:
+        - validate
+
+    - name: Display backup validation
+      debug:
+        msg: "{{ backup_validation.stdout_lines }}"
+      tags:
+        - validate
+
+    - name: Archive old backups (older than 30 days)
+      shell: |
+        find {{ backup_path }}/configs -type f -name "*.conf" -mtime +30 -exec rm {} \;
+        find {{ backup_path }}/configs -type f -name "*.set" -mtime +30 -exec rm {} \;
+        find {{ backup_path }}/configs -type f -name "*.xml" -mtime +30 -exec rm {} \;
+      delegate_to: localhost
+      tags:
+        - maintenance
+        - cleanup

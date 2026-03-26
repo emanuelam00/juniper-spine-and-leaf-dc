@@ -1,0 +1,33 @@
+# Python dependencies for Juniper Datacenter Fabric Automation
+# Install with: pip install -r python-requirements.txt
+
+# Core Ansible
+ansible>=2.9,<3.0
+
+# Juniper Networks Integration
+ncclient>=0.6.10
+
+# Network Configuration Management
+netaddr>=0.7.18
+
+# Data Processing
+jinja2>=2.11
+pyyaml>=5.3
+xmltodict>=0.12.0
+
+# SSH and Cryptography
+paramiko>=2.7.0
+cryptography>=3.0
+
+# Utilities
+six>=1.15.0
+requests>=2.25.0
+
+# Optional: For Jinja2 extensions
+markupsafe>=1.1.0
+
+# Development (optional)
+# pytest>=6.0.0
+# pytest-ansible>=0.3.0
+# ansible-lint>=5.0.0
+# yamllint>=1.20.0

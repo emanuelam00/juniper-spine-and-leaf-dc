@@ -1,0 +1,184 @@
+{# Security hardening template #}
+
+{# Firewall Filters and Policers #}
+firewall {
+    {# CoPP Filter #}
+    filter copp-filter {
+        term ssh {
+            from {
+                protocol tcp;
+                destination-port ssh;
+            }
+            then {
+                policer ssh-policer;
+                accept;
+            }
+        }
+        term snmp {
+            from {
+                protocol udp;
+                destination-port snmp;
+            }
+            then {
+                policer snmp-policer;
+                accept;
+            }
+        }
+        term bgp {
+            from {
+                protocol tcp;
+                destination-port bgp;
+            }
+            then {
+                policer bgp-policer;
+                accept;
+            }
+        }
+        term ntp {
+            from {
+                protocol udp;
+                destination-port ntp;
+            }
+            then {
+                policer ntp-policer;
+                accept;
+            }
+        }
+        term icmp {
+            from protocol icmp;
+            then {
+                policer icmp-policer;
+                accept;
+            }
+        }
+        term discard {
+            then discard;
+        }
+    }
+
+    {# Policers for CoPP #}
+    policer ssh-policer {
+        if-exceeding {
+            bandwidth-limit 10000;
+            burst-size-limit 20000;
+        }
+        then discard;
+    }
+
+    policer snmp-policer {
+        if-exceeding {
+            bandwidth-limit 5000;
+            burst-size-limit 10000;
+        }
+        then discard;
+    }
+
+    policer bgp-policer {
+        if-exceeding {
+            bandwidth-limit 50000;
+            burst-size-limit 100000;
+        }
+        then discard;
+    }
+
+    policer ntp-policer {
+        if-exceeding {
+            bandwidth-limit 5000;
+            burst-size-limit 10000;
+        }
+        then discard;
+    }
+
+    policer icmp-policer {
+        if-exceeding {
+            bandwidth-limit 10000;
+            burst-size-limit 20000;
+        }
+        then discard;
+    }
+
+    {# Storm Control Policers #}
+    policer storm-broadcast {
+        if-exceeding {
+            bandwidth-limit {{ storm_control_broadcast_threshold }};
+            burst-size-limit {{ storm_control_broadcast_threshold * 2 }};
+        }
+        then discard;
+    }
+
+    policer storm-multicast {
+        if-exceeding {
+            bandwidth-limit {{ storm_control_multicast_threshold }};
+            burst-size-limit {{ storm_control_multicast_threshold * 2 }};
+        }
+        then discard;
+    }
+}
+
+{# Forwarding Options with CoPP #}
+forwarding-options {
+    family inet filter input copp-filter;
+    family inet6 filter input copp-filter;
+}
+
+{# Security Configuration #}
+security {
+    {# DoS Protection #}
+    flow {
+        tcp-mss ipsec-vpn {
+            mss 1350;
+        }
+        tcp-session {
+            rst-validate drop-all-tcp-reset;
+        }
+    }
+
+    {# DDoS Protection #}
+    ddos-protection {
+        protocols {
+            bgp {
+                aggregate {
+                    bandwidth-limit 100m;
+                    flow-limit 100k;
+                }
+            }
+            bfd {
+                aggregate {
+                    bandwidth-limit 10m;
+                    flow-limit 10k;
+                }
+            }
+        }
+    }
+
+    {# Security Zones #}
+    zones {
+        security-zone trust {
+            host-inbound-traffic {
+                system-services {
+                    ssh;
+                    netconf;
+                    snmp;
+                }
+                protocols {
+                    bgp;
+                    bfd;
+                }
+            }
+        }
+    }
+}
+
+{# System Logging for Security #}
+system {
+    syslog {
+        file security-log {
+            facility [ auth local0 ];
+            severity critical;
+            archive {
+                size 100m;
+                files 10;
+            }
+        }
+    }
+}

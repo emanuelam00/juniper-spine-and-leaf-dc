@@ -1,0 +1,192 @@
+# Alertmanager Configuration for Juniper Fabric Monitoring
+# Production-ready alert routing and notification configuration
+
+global:
+  resolve_timeout: 5m
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Templates for alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Top-level routing configuration
+route:
+  # Default grouping
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  # High-severity routing - immediate escalation
+  routes:
+    - match:
+        severity: critical
+        category: fabric
+      receiver: 'critical-fabric'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    - match:
+        severity: critical
+        category: reachability
+      receiver: 'critical-reachability'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 10s
+      repeat_interval: 2h
+
+    - match:
+        severity: warning
+        category: interface
+      receiver: 'interface-warnings'
+      group_wait: 1m
+      repeat_interval: 4h
+
+    - match:
+        severity: warning
+      receiver: 'warnings'
+      group_wait: 5m
+      repeat_interval: 12h
+
+    - match:
+        severity: info
+      receiver: 'info'
+      group_wait: 10m
+      repeat_interval: 24h
+
+# Receivers configuration
+receivers:
+  # Default receiver (all unmatched alerts)
+  - name: 'default'
+    slack_configs:
+      - channel: '#monitoring'
+        title: 'Fabric Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}'
+        color: 'warning'
+
+  # Critical alerts - Fabric
+  - name: 'critical-fabric'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: 'Fabric: {{ .GroupLabels.alertname }}'
+        details:
+          firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: 'CRITICAL FABRIC: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+        color: 'danger'
+        send_resolved: true
+        actions:
+          - type: button
+            text: 'View Prometheus'
+            url: 'http://prometheus:9090/graph?g0.expr={{ .Alerts.Firing | first | .Labels | toJson }}'
+    email_configs:
+      - to: 'network-team@company.com'
+        from: 'alertmanager@monitoring.local'
+        smarthost: 'smtp.company.com:587'
+        auth_username: 'alertmanager@company.com'
+        auth_password: '${SMTP_PASSWORD}'
+        headers:
+          Subject: 'CRITICAL FABRIC ALERT: {{ .GroupLabels.alertname }}'
+
+  # Critical alerts - Reachability
+  - name: 'critical-reachability'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'
+        description: 'Device Down: {{ .GroupLabels.alertname }}'
+        details:
+          firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: 'CRITICAL DEVICE DOWN: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}Device: {{ .Labels.device_name }}\nIP: {{ .Labels.management_ip }}\n{{ .Annotations.description }}\n{{ end }}'
+        color: 'danger'
+        send_resolved: true
+
+  # All critical severity alerts
+  - name: 'critical'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: 'CRITICAL: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\nAction: {{ .Annotations.action }}\n{{ end }}'
+        color: 'danger'
+        send_resolved: true
+
+  # Interface warnings
+  - name: 'interface-warnings'
+    slack_configs:
+      - channel: '#network-warnings'
+        title: 'Interface Alert: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Labels.device_name }}/{{ .Labels.ifName }}: {{ .Annotations.summary }}\n{{ end }}'
+        color: 'warning'
+
+  # General warnings
+  - name: 'warnings'
+    slack_configs:
+      - channel: '#network-warnings'
+        title: 'Warning: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}'
+        color: 'warning'
+
+  # Info-level alerts
+  - name: 'info'
+    slack_configs:
+      - channel: '#monitoring-info'
+        title: 'Info: {{ .GroupLabels.alertname }}'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}'
+        color: 'good'
+
+# Alert inhibition rules
+inhibit_rules:
+  # Inhibit interface errors if interface is down
+  - source_match:
+      alertname: 'InterfaceDown'
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+      category: 'interface'
+    equal: ['device_name', 'ifName']
+
+  # Inhibit device-level alerts if management is unreachable
+  - source_match:
+      alertname: 'DeviceUnreachable'
+      severity: 'critical'
+    target_match_re:
+      severity: 'warning|info'
+    equal: ['device_name']
+
+  # Inhibit spine failover alerts if already in critical
+  - source_match:
+      alertname: 'SpineFailure'
+      severity: 'critical'
+    target_match:
+      alertname: 'BGPNeighborDown'
+      severity: 'critical'
+    equal: ['device_name']
+
+  # Inhibit memory warnings if memory is critical
+  - source_match:
+      alertname: 'HighMemoryUtilization'
+      severity: 'critical'
+    target_match:
+      alertname: 'HighMemoryUtilization'
+      severity: 'warning'
+    equal: ['device_name']
+
+  # Inhibit CPU warnings if CPU is critical
+  - source_match:
+      alertname: 'HighCPUUtilization'
+      severity: 'critical'
+    target_match:
+      alertname: 'HighCPUUtilization'
+      severity: 'warning'
+    equal: ['device_name']

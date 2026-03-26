@@ -1,0 +1,136 @@
+{# Base configuration template for Juniper devices #}
+{# Configures system settings, users, NTP, DNS, syslog, SNMP #}
+
+system {
+    host-name {{ hostname }};
+    domain-name {{ domain_name }};
+    time-zone {{ ntp_timezone }};
+
+    {# NTP Configuration #}
+    ntp {
+{% for server in ntp_servers %}
+        server {{ server }} prefer;
+{% endfor %}
+    }
+
+    {# DNS Configuration #}
+    name-server {
+{% for dns_server in dns_servers %}
+        {{ dns_server }};
+{% endfor %}
+    }
+
+    {# System Users #}
+    login {
+        banner "{{ login_banner }}";
+{% for user in system_users %}
+        user {{ user.username }} {
+            uid {{ user.uid }};
+            class {{ user.class }};
+            authentication {
+                encrypted-password "{{ user.authentication.encrypted_password }}";
+            }
+        }
+{% endfor %}
+    }
+
+    {# Root authentication disabled #}
+    root-authentication {
+        disabled;
+    }
+
+    {# Services Configuration #}
+    services {
+        ssh {
+            port {{ ssh_port }};
+            protocol-version v2;
+            macs [ hmac-sha2-256 hmac-sha2-512 ];
+            ciphers [ aes128-ctr aes192-ctr aes256-ctr ];
+            key-exchange [ diffie-hellman-group-exchange-sha256 ];
+            max-sessions-per-connection 10;
+            rate-limit 10;
+            tcp-forwarding disable;
+            x11-forwarding disable;
+        }
+        netconf {
+            ssh;
+        }
+        finger;
+        ftp;
+        telnet;
+    }
+
+    {# Syslog Configuration #}
+    syslog {
+        host {{ syslog_servers[0] }} {
+            port {{ syslog_port }};
+            facility {{ syslog_facility }};
+            severity {{ syslog_severity }};
+        }
+        file messages {
+            any notice;
+            archive size 100m files 10;
+        }
+        file traffic-log {
+            traffic notice;
+            archive size 50m files 3;
+        }
+        file security-log {
+            facility [ auth local0 ];
+            severity critical;
+            archive size 100m files 10;
+        }
+    }
+
+    {# Console Settings #}
+    ports {
+        console {
+            type vt100;
+            speed 9600;
+        }
+    }
+
+    {# Session Settings #}
+    session {
+        idle-timeout 30;
+        session-limit 64;
+    }
+
+    {# Graceful Shutdown #}
+    graceful-shutdown;
+}
+
+{# SNMP Configuration #}
+snmp {
+    description "{{ device_type | upper }} - {{ hostname }}";
+    location "{{ snmp_locations[0] }}";
+    contact "{{ snmp_contact }}";
+
+    community {{ snmp_community }} {
+        authorization read-only;
+    }
+
+    v3 {
+        usm {
+            local-engine {
+                engine-id {{ snmp_v3_engine_id }};
+                user {{ snmp_v3_username }} {
+                    authentication-protocol sha;
+                    authentication-password "{{ vault_snmp_v3_password }}";
+                    privacy-protocol aes128;
+                    privacy-password "{{ vault_snmp_v3_password }}";
+                }
+            }
+        }
+    }
+
+    trap-group fabric_monitoring {
+        version v2c;
+        community {{ snmp_community }};
+        targets {
+{% for target in snmp_trap_targets %}
+            {{ target.address }};
+{% endfor %}
+        }
+    }
+}

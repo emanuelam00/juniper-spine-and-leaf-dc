@@ -1,0 +1,157 @@
+---
+# Common variables for all devices in the datacenter fabric
+
+# Device management
+ansible_connection: netconf
+ansible_port: 830
+ansible_network_os: junos
+ansible_timeout: 30
+ansible_retries: 3
+ansible_password: "{{ vault_ansible_password }}"
+
+# NTP Configuration
+ntp_servers:
+  - 10.255.0.254
+  - 8.8.8.8
+ntp_timezone: "UTC"
+
+# Syslog Configuration
+syslog_servers:
+  - 10.255.0.100
+syslog_port: 514
+syslog_facility: "local7"
+syslog_severity: "notice"
+
+# DNS Configuration
+dns_servers:
+  - 8.8.8.8
+  - 8.8.4.4
+domain_name: "dc1.example.com"
+search_domains:
+  - dc1.example.com
+  - example.com
+
+# SNMP Configuration
+snmp_community: "{{ vault_snmp_community }}"
+snmp_v3_username: "snmp_user"
+snmp_v3_password: "{{ vault_snmp_v3_password }}"
+snmp_v3_engine_id: "8000070904"
+snmp_locations:
+  - "Datacenter 1"
+  - "Building A"
+snmp_contact: "network-team@example.com"
+snmp_trap_targets:
+  - address: 10.255.0.100
+    port: 162
+    community: "{{ vault_snmp_community }}"
+    version: "v2c"
+
+# Login Banner
+login_banner: |
+  #############################################################################
+  #                    AUTHORIZED PERSONNEL ONLY                             #
+  #                                                                           #
+  #  Unauthorized access to this system is forbidden and will be prosecuted  #
+  #  by law. By accessing this system, you agree to comply with all          #
+  #  corporate security policies and procedures.                            #
+  #                                                                           #
+  #############################################################################
+
+# Management Network
+management_gateway: 10.255.0.254
+management_netmask: 255.255.255.0
+
+# NETCONF Configuration
+netconf_enabled: true
+netconf_port: 830
+netconf_ssh_timeout: 30
+
+# SSH Configuration
+ssh_port: 22
+ssh_protocol_version: 2
+ssh_ciphers:
+  - aes128-ctr
+  - aes192-ctr
+  - aes256-ctr
+ssh_key_exchange:
+  - diffie-hellman-group14-sha1
+  - diffie-hellman-group-exchange-sha256
+ssh_macs:
+  - hmac-sha2-256
+  - hmac-sha2-512
+
+# System User Configuration
+system_users:
+  - username: admin
+    uid: 2000
+    class: super-user
+    authentication:
+      encrypted_password: "{{ vault_admin_password }}"
+  - username: ansible
+    uid: 2001
+    class: super-user
+    authentication:
+      encrypted_password: "{{ vault_ansible_password }}"
+  - username: netadmin
+    uid: 2002
+    class: read-only
+    authentication:
+      encrypted_password: "{{ vault_netadmin_password }}"
+
+# Syslog Severities
+log_severity_mapping:
+  emergency: 0
+  alert: 1
+  critical: 2
+  error: 3
+  warning: 4
+  notice: 5
+  info: 6
+  debug: 7
+
+# Interface defaults
+mtu_default: 1500
+mtu_underlay: 1500
+mtu_overlay: 9000
+
+# BGP AS Numbers
+asn_spine: 65000
+asn_leaf_base: 65001
+asn_leaf_max: 65060
+
+# Loopback address pools
+loopback_spine_pool: "192.0.2.0/26"
+loopback_leaf_pool: "192.0.2.64/26"
+loopback_vrf_pool: "203.0.113.0/26"
+
+# P2P Link pools
+p2p_spine_leaf_pool: "10.0.0.0/16"
+p2p_link_netmask: "255.255.255.252"
+
+# VLAN Configuration
+vlan_management: 4090
+vlan_management_ip_range: "10.254.0.0/24"
+
+# QOS Defaults
+qos_enabled: true
+cos_marking: true
+
+# Monitoring defaults
+monitoring_enabled: true
+telegraf_enabled: true
+grpc_enabled: true
+grpc_port: 50051
+openconfig_enabled: true
+
+# Fabric-wide settings
+fabric_name: "dc1-fabric"
+fabric_region: "us-west"
+environment: "production"
+backup_enabled: true
+backup_path: "/var/backups/configs"
+backup_retention_days: 30
+
+# Validation thresholds
+validation_bgp_threshold: 0.9  # Alert if < 90% of BGP sessions up
+validation_lldp_threshold: 0.95  # Alert if < 95% of LLDP neighbors
+validation_interface_threshold: 0.98  # Alert if < 98% of interfaces up

@@ -1,0 +1,526 @@
+## JunOS Configuration Template for QFX5120-48Y Leaf Switches
+## EVPN-VXLAN Spine-Leaf Fabric
+## Generated via Jinja2 template - DO NOT EDIT MANUALLY
+
+system {
+    host-name {{ hostname }};
+    domain-name {{ domain }};
+    time-zone {{ timezone }};
+    root-authentication {
+        encrypted-password "{{ root_password }}";
+    }
+    name-server {
+        {{ ntp_servers[0] }};
+        {{ ntp_servers[1] }};
+    }
+    ntp {
+        server {{ ntp_servers[0] }};
+        server {{ ntp_servers[1] }};
+    }
+    syslog {
+        user * {
+            any emergency;
+        }
+        file messages {
+            any notice;
+            authorization info;
+        }
+        file traffic_log {
+            pfe {
+                any any;
+            }
+        }
+        host {{ syslog_server }} {
+            any info;
+            port 514;
+        }
+    }
+    login {
+        banner login "=== {{ hostname }} - Datacenter Spine-Leaf Fabric ===\nUnauthorized access is prohibited and will be prosecuted by law.";
+    }
+    services {
+        ssh {
+            root-login deny;
+            protocol-version v2;
+            log-key-changes;
+        }
+        netconf {
+            ssh;
+        }
+        snmp {
+            description "{{ hostname }} - QFX5120-48Y Leaf Switch";
+            contact "{{ snmp_contact }}";
+            location "{{ snmp_location }}";
+            community {{ snmp_community }} {
+                authorization read-only;
+            }
+            v3 {
+                usm {
+                    local-engine {
+                        user {{ snmp_user }} {
+                            authentication-md5 {
+                                authentication-key "{{ snmp_auth_key }}";
+                            }
+                            privacy-3des {
+                                privacy-key "{{ snmp_privacy_key }}";
+                            }
+                        }
+                    }
+                }
+                vacm {
+                    security-to-group {
+                        security-model usm {
+                            security-name {{ snmp_user }} {
+                                group-name SNMP-USM-GROUP;
+                            }
+                        }
+                    }
+                    access {
+                        group SNMP-USM-GROUP {
+                            default-context-prefix {
+                                read-view all;
+                                notify-view all;
+                            }
+                        }
+                    }
+                }
+                view all {
+                    oid .1 {
+                        restriction "";
+                    }
+                }
+            }
+            trap-options {
+                source-address {{ router_id }};
+            }
+        }
+    }
+    management {
+        event-options {
+            policy SYSLOG_ALERT {
+                events [ ui_login_event ui_logout_event ];
+                then {
+                    syslog;
+                }
+            }
+        }
+    }
+}
+
+interfaces {
+    # Management interface
+    em0 {
+        unit 0 {
+            family inet {
+                address {{ mgmt_ip }};
+            }
+        }
+    }
+
+    # Loopback interface
+    lo0 {
+        unit 0 {
+            family inet {
+                address {{ loopback_ip }};
+            }
+            family inet6 {
+                address ::1/128;
+            }
+        }
+    }
+
+    # Server-facing 25G ports (et-0/0/0 through et-0/0/47)
+{%- for port_num in range(0, 48) %}
+    et-0/0/{{ port_num }} {
+        description "{{ hostname }}-server-{{ port_num + 1 }}";
+        mtu 9216;
+        ether-options {
+            802.3ad ae0;
+        }
+    }
+{%- endfor %}
+
+    # ESI-LAG (ae0) - Aggregated Ethernet for EVPN multihoming
+    ae0 {
+        description "ESI-LAG to servers in {{ rack_name }}";
+        mtu 9216;
+        esi {
+            auto-derive lacp;
+        }
+        aggregated-ether-options {
+            lacp {
+                active;
+                periodic slow;
+                system-priority {{ lacp_system_priority }};
+                system-id {{ lacp_system_id }};
+            }
+        }
+        unit 0 {
+            family ethernet-switching {
+                interface-mode trunk;
+                vlan {
+                    members VLAN-100;
+                    members VLAN-200;
+                    members VLAN-300;
+                }
+                storm-control {
+                    all {
+                        bandwidth-percentage 10;
+                    }
+                }
+            }
+        }
+    }
+
+    # Uplink to Spine 1 (et-0/0/48)
+    et-0/0/48 {
+        description "to {{ spine_list[0].hostname }}";
+        mtu 9000;
+        unit 0 {
+            family inet {
+                address {{ spine_list[0].leaf_peer_ip }}/31;
+            }
+        }
+    }
+
+    # Uplink to Spine 2 (et-0/0/49)
+    et-0/0/49 {
+        description "to {{ spine_list[1].hostname }}";
+        mtu 9000;
+        unit 0 {
+            family inet {
+                address {{ spine_list[1].leaf_peer_ip }}/31;
+            }
+        }
+    }
+
+    # Uplink to Spine 3 (et-0/0/50)
+    et-0/0/50 {
+        description "to {{ spine_list[2].hostname }}";
+        mtu 9000;
+        unit 0 {
+            family inet {
+                address {{ spine_list[2].leaf_peer_ip }}/31;
+            }
+        }
+    }
+
+    # Uplink to Spine 4 (et-0/0/51)
+    et-0/0/51 {
+        description "to {{ spine_list[3].hostname }}";
+        mtu 9000;
+        unit 0 {
+            family inet {
+                address {{ spine_list[3].leaf_peer_ip }}/31;
+            }
+        }
+    }
+
+    # IRB interfaces for EVPN symmetric IRB
+    irb {
+        unit 100 {
+            description "IRB for VLAN 100 - {{ vlan_100_name }}";
+            family inet {
+                address {{ irb_vlan_100_ip }}/24;
+                virtual-gateway-address {{ vlan_100_gw_ip }};
+            }
+        }
+        unit 200 {
+            description "IRB for VLAN 200 - {{ vlan_200_name }}";
+            family inet {
+                address {{ irb_vlan_200_ip }}/24;
+                virtual-gateway-address {{ vlan_200_gw_ip }};
+            }
+        }
+        unit 300 {
+            description "IRB for VLAN 300 - {{ vlan_300_name }}";
+            family inet {
+                address {{ irb_vlan_300_ip }}/24;
+                virtual-gateway-address {{ vlan_300_gw_ip }};
+            }
+        }
+    }
+}
+
+firewall {
+    filter COPP-FILTER {
+        term ALLOW_BGP {
+            from {
+                protocol tcp;
+                destination-port 179;
+            }
+            then accept;
+        }
+        term ALLOW_BFD {
+            from {
+                protocol udp;
+                destination-port 3784;
+            }
+            then accept;
+        }
+        term ALLOW_SSH {
+            from {
+                protocol tcp;
+                destination-port 22;
+            }
+            then accept;
+        }
+        term ALLOW_NETCONF {
+            from {
+                protocol tcp;
+                destination-port 830;
+            }
+            then accept;
+        }
+        term ALLOW_SNMP {
+            from {
+                protocol udp;
+                destination-port 161;
+            }
+            then accept;
+        }
+        term ALLOW_NTP {
+            from {
+                protocol udp;
+                destination-port 123;
+            }
+            then accept;
+        }
+        term DISCARD_REST {
+            then discard;
+        }
+    }
+}
+
+routing-options {
+    router-id {{ router_id }};
+    autonomous-system {{ asn }};
+    forwarding-table {
+        export [ LOAD-BALANCE ];
+    }
+    static {
+        route 0.0.0.0/0 next-hop {{ default_gateway }};
+    }
+}
+
+policy-options {
+    policy-statement LOAD-BALANCE {
+        then {
+            load-balance per-packet;
+        }
+    }
+
+    policy-statement EXPORT-LOOPBACK {
+        term loopback {
+            from {
+                route-filter {{ loopback_ip }} exact;
+            }
+            then accept;
+        }
+        term direct {
+            from {
+                protocol direct;
+            }
+            then accept;
+        }
+    }
+
+    policy-statement REJECT-DEFAULT {
+        term no-default {
+            from {
+                route-filter 0.0.0.0/0 exact;
+            }
+            then reject;
+        }
+        term accept-rest {
+            then accept;
+        }
+    }
+
+    policy-statement EVPN-IMPORT-POLICY {
+        term import-evpn {
+            then accept;
+        }
+    }
+
+    policy-statement EVPN-EXPORT-POLICY {
+        term export-evpn {
+            then accept;
+        }
+    }
+}
+
+protocols {
+    bfd {
+        minimum-interval 300;
+        multiplier 3;
+    }
+
+    bgp {
+        log-updown;
+        graceful-restart {
+            restart-time 120;
+        }
+        group SPINE-UNDERLAY {
+            type external;
+            mtu-discovery;
+            import [ REJECT-DEFAULT ];
+            export [ EXPORT-LOOPBACK ];
+            multipath {
+                multiple-as;
+            }
+            bfd-liveness-detection {
+                minimum-interval 300;
+                multiplier 3;
+                session-mode automatic;
+            }
+{%- for spine in spine_list %}
+            neighbor {{ spine.spine_peer_ip }} {
+                description "eBGP to {{ spine.hostname }}";
+                peer-as 65000;
+            }
+{%- endfor %}
+        }
+
+        group SPINE-OVERLAY {
+            type external;
+            multihop {
+                ttl 2;
+            }
+            local-address {{ router_id }};
+            family evpn {
+                signaling {
+                    graceful-restart;
+                }
+            }
+            multipath;
+            graceful-restart {
+                restart-time 120;
+            }
+            log-updown;
+{%- for spine in spine_list %}
+            neighbor {{ spine.loopback_ip }} {
+                description "eBGP EVPN to {{ spine.hostname }}";
+                peer-as 65000;
+            }
+{%- endfor %}
+        }
+    }
+
+    evpn {
+        encapsulation vxlan;
+        extended-vni-list [ 10100 10200 10300 ];
+        multicast-mode ingress-replication;
+        vni-options {
+            vni 10100 {
+                vrf-target target:{{ asn }}:10100;
+            }
+            vni 10200 {
+                vrf-target target:{{ asn }}:10200;
+            }
+            vni 10300 {
+                vrf-target target:{{ asn }}:10300;
+            }
+        }
+    }
+
+    lldp {
+        management-address {{ router_id }};
+        advertisement-interval 30;
+        hold-time-multiplier 4;
+        interface ae0 {
+            disable;
+        }
+        interface all {
+            enable;
+        }
+    }
+}
+
+vlans {
+    VLAN-100 {
+        vlan-id 100;
+        description "Tenant 1 - Application VLAN";
+        vxlan {
+            vni 10100;
+        }
+        l3-interface irb.100;
+    }
+    VLAN-200 {
+        vlan-id 200;
+        description "Tenant 1 - Database VLAN";
+        vxlan {
+            vni 10200;
+        }
+        l3-interface irb.200;
+    }
+    VLAN-300 {
+        vlan-id 300;
+        description "Tenant 1 - Storage VLAN";
+        vxlan {
+            vni 10300;
+        }
+        l3-interface irb.300;
+    }
+}
+
+class-of-service {
+    forwarding-classes {
+        class "queue-0" queue-num 0;
+        class "queue-1" queue-num 1;
+        class "queue-2" queue-num 2;
+        class "queue-3" queue-num 3;
+    }
+}
+
+routing-instances {
+    TENANT-1 {
+        instance-type vrf;
+        protocols {
+            bgp {
+                graceful-restart;
+            }
+            evpn {
+                ip-prefix-routes {
+                    advertise policy-map leaf-routes;
+                    encapsulation vxlan;
+                    vni 50001;
+                }
+            }
+        }
+        vrf-target {
+            target:{{ asn }}:50001;
+            target:{{ asn }}:50001 import;
+        }
+        vrf-table-label;
+        routing-options {
+            autonomous-system {{ asn }};
+            static {
+                route 0.0.0.0/0 next-hop {{ default_gateway }};
+            }
+        }
+        interfaces {
+            irb.100;
+            irb.200;
+            irb.300;
+        }
+    }
+}
+
+# Apply CoPP filter to loopback
+apply-groups-except [ EXCLUDE ];
+groups {
+    COPP-POLICY {
+        interfaces {
+            lo0 {
+                unit 0 {
+                    family inet {
+                        filter {
+                            input COPP-FILTER;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

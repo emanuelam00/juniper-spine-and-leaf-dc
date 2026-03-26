@@ -1,0 +1,605 @@
+## JunOS Spine Switch Configuration Template
+## QFX5220-32CD | Spine-Leaf Fabric | eBGP Underlay + iBGP EVPN Overlay
+## Template Version: 1.0
+## Generated: {{ generation_date }}
+
+version 20.4R1;
+
+system {
+    host-name {{ hostname }};
+    domain-name datacenter.local;
+    time-zone UTC;
+    root-authentication {
+        encrypted-password "$6$PLACEHOLDER";
+    }
+    login {
+        banner {
+            "Juniper Networks Datacenter Spine Switch
+Authorized access only. All activity is monitored and logged.";
+        }
+    }
+    name-server {
+        10.255.0.250;
+        10.255.0.251;
+    }
+    ntp {
+        server 10.255.0.250 prefer;
+        server 10.255.0.251;
+    }
+    syslog {
+        archive size 100m files 10;
+        file messages {
+            any notice;
+            authorization info;
+        }
+        file traffic_log {
+            traffic any;
+        }
+        host 10.255.0.252 {
+            any info;
+            port 514;
+        }
+    }
+    snmp {
+        engine-id 00:00:00:00:00:00:00:00:00:00:00:00;
+        v3 {
+            usm {
+                local-engine {
+                    user netmon {
+                        authentication-type sha;
+                        authentication-key "$9$PLACEHOLDER";
+                        privacy-type aes128;
+                        privacy-key "$9$PLACEHOLDER";
+                    }
+                }
+            }
+            vacm {
+                security-group sg_netmon {
+                    security-model usm;
+                    security-level authentication;
+                    member netmon;
+                }
+                access {
+                    group sg_netmon {
+                        default-context-prefix {
+                            read-view v_all;
+                        }
+                    }
+                }
+            }
+            view v_all {
+                oid 1.3.6.1.2.1 restricted;
+            }
+        }
+        trap-options {
+            source-address {{ loopback_ip }};
+        }
+    }
+    login-class super-user-class {
+        idle-timeout 0;
+        login-alarms;
+        login-tip;
+        permissions all;
+    }
+    root-group {
+        class super-user-class;
+    }
+    login-user netadmin {
+        uid 2001;
+        class super-user;
+        authentication {
+            encrypted-password "$6$PLACEHOLDER";
+        }
+    }
+}
+
+interfaces {
+    interface-range leaf-links {
+        member-range et-0/0/0:0 to et-0/0/14:3;
+        description "Links to Leaf Switches";
+        mtu 9216;
+        hold-time up 0 down 0;
+        encapsulation ethernet-bridge;
+        speed 100g;
+        no-gratuitous-arp-sense;
+        storm-control {
+            unknown-unicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            broadcast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            multicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+        }
+        unit 0 {
+            family inet {
+                address {{ leaf_links_subnet }};
+            }
+            family inet6 {
+                address {{ leaf_links_subnet_v6 }};
+            }
+        }
+    }
+
+    interface-range fw-links {
+        member-range et-0/0/30 to et-0/0/31;
+        description "Links to Firewalls";
+        mtu 9216;
+        hold-time up 0 down 0;
+        encapsulation ethernet-bridge;
+        speed 400g;
+        no-gratuitous-arp-sense;
+        storm-control {
+            unknown-unicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            broadcast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            multicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+        }
+        unit 0 {
+            family inet;
+            family inet6;
+        }
+    }
+
+    # Explicit per-interface configuration for leaf links with P2P addresses
+{% for leaf_id in range(1, 61) %}
+    et-0/0/{{ ((leaf_id - 1) // 4) }}:{{ (leaf_id - 1) % 4 }} {
+        description "dc1-leaf-{{ "%03d" | format(leaf_id) }}";
+        mtu 9216;
+        hold-time up 0 down 0;
+        speed 100g;
+        no-gratuitous-arp-sense;
+        storm-control {
+            unknown-unicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            broadcast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            multicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+        }
+        unit 0 {
+            family inet {
+                address 10.1.{{ spine_asn_suffix }}.{{ (leaf_id - 1) * 2 }}/31;
+            }
+        }
+    }
+{% endfor %}
+
+    et-0/0/30 {
+        description "dc1-fw-01";
+        mtu 9216;
+        hold-time up 0 down 0;
+        speed 400g;
+        no-gratuitous-arp-sense;
+        storm-control {
+            unknown-unicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            broadcast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            multicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+        }
+        unit 0 {
+            family inet {
+                address 10.2.0.{{ (spine_id - 1) * 4 }}/31;
+            }
+        }
+    }
+
+    et-0/0/31 {
+        description "dc1-fw-02";
+        mtu 9216;
+        hold-time up 0 down 0;
+        speed 400g;
+        no-gratuitous-arp-sense;
+        storm-control {
+            unknown-unicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            broadcast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+            multicast {
+                bandwidth-percent 10;
+                burst-size 1500;
+            }
+        }
+        unit 0 {
+            family inet {
+                address 10.2.0.{{ (spine_id - 1) * 4 + 2 }}/31;
+            }
+        }
+    }
+
+    lo0 {
+        description "Loopback - RR Router-ID";
+        unit 0 {
+            family inet {
+                address {{ loopback_ip }}/32;
+            }
+            family inet6 {
+                address {{ loopback_ipv6 }}/128;
+            }
+        }
+    }
+
+    em0 {
+        description "Out-of-band Management";
+        unit 0 {
+            family inet {
+                address {{ mgmt_ip }}/24;
+            }
+        }
+    }
+}
+
+protocols {
+    bgp {
+        graceful-restart {
+            restart-time 300;
+            stale-route-time 600;
+        }
+        log-updown;
+        multipath {
+            multiple-as;
+        }
+        bfd-liveness-detection {
+            minimum-interval 300;
+            multiplier 3;
+            session-mode automatic;
+        }
+        group RR-clients {
+            description "Route Reflector: EVPN iBGP Clients";
+            type internal;
+            local-address {{ loopback_ip }};
+            cluster {{ loopback_ip }};
+            keep-all;
+            family evpn {
+                signaling;
+            }
+            multipath;
+            allow 10.0.0.0/24;
+            bfd-liveness-detection {
+                minimum-interval 300;
+                multiplier 3;
+            }
+            multihop {
+                ttl 64;
+            }
+            import RR-in;
+            export RR-out;
+{% for leaf_id in range(1, 61) %}
+            neighbor 10.0.{{ 100 + leaf_id }}.0 {
+                description "dc1-leaf-{{ "%03d" | format(leaf_id) }}";
+                authentication-key "$9$PLACEHOLDER";
+            }
+{% endfor %}
+        }
+
+        group ebgp-leaves {
+            description "eBGP: Leaf Switches - Underlay";
+            type external;
+            mtu-discovery;
+            import underlay-in;
+            export underlay-out;
+            bfd-liveness-detection {
+                minimum-interval 300;
+                multiplier 3;
+            }
+            multipath;
+            local-as {{ asn }};
+            authentication-key "$9$PLACEHOLDER";
+            graceful-restart;
+            family inet {
+                unicast;
+            }
+            traceoptions {
+                file bgp-leaves.log size 10m files 5;
+                flag state;
+                flag packets;
+            }
+
+{% for leaf_id in range(1, 61) %}
+            neighbor 10.1.{{ spine_asn_suffix }}.{{ (leaf_id - 1) * 2 + 1 }} {
+                description "dc1-leaf-{{ "%03d" | format(leaf_id) }} (ASN 65{{ "%03d" | format(leaf_id) }})";
+                peer-as 65{{ "%03d" | format(leaf_id) }};
+            }
+{% endfor %}
+        }
+
+        group ebgp-firewalls {
+            description "eBGP: Firewall Appliances";
+            type external;
+            mtu-discovery;
+            import underlay-in;
+            export underlay-out;
+            bfd-liveness-detection {
+                minimum-interval 300;
+                multiplier 3;
+            }
+            multipath;
+            local-as {{ asn }};
+            authentication-key "$9$PLACEHOLDER";
+            graceful-restart;
+            family inet {
+                unicast;
+            }
+
+            neighbor 10.2.0.{{ (spine_id - 1) * 4 + 1 }} {
+                description "dc1-fw-01 (ASN 65100)";
+                peer-as 65100;
+            }
+
+            neighbor 10.2.0.{{ (spine_id - 1) * 4 + 3 }} {
+                description "dc1-fw-02 (ASN 65100)";
+                peer-as 65100;
+            }
+        }
+    }
+
+    bgp {
+        group RR-clients {
+            family evpn {
+                accepted-prefix-limit {
+                    maximum 100000;
+                    teardown 95;
+                }
+            }
+        }
+    }
+
+    lldp {
+        port-id-subtype interface-alias;
+        port-description-type interface-description;
+        neighbour-port-info-display port-id;
+        interface all {
+            enable;
+        }
+        interface em0 {
+            disable;
+        }
+        interface lo0 {
+            disable;
+        }
+    }
+
+    igmp {
+        interface all {
+            disable;
+        }
+    }
+
+    icmp {
+        rate-limit bucket-size 20;
+    }
+}
+
+routing-options {
+    autonomous-system {{ asn }};
+    router-id {{ router_id }};
+    forwarding-table {
+        ecmp-fast-reroute;
+        export underlay-ecmp;
+    }
+    graceful-restart {
+        restart-time 300;
+    }
+}
+
+policy-options {
+    prefix-list loopback {
+        {{ loopback_ip }}/32;
+    }
+
+    prefix-list connected-subnets {
+        10.1.0.0/16;
+        10.2.0.0/16;
+    }
+
+    policy-statement underlay-out {
+        description "Export loopback and connected routes to eBGP peers";
+        term loopback {
+            from {
+                prefix-list loopback;
+            }
+            then accept;
+        }
+        term connected {
+            from {
+                prefix-list connected-subnets;
+            }
+            then accept;
+        }
+        then reject;
+    }
+
+    policy-statement underlay-in {
+        description "Import all routes from eBGP peers";
+        then accept;
+    }
+
+    policy-statement RR-out {
+        description "Export EVPN routes to RR clients";
+        from {
+            family evpn;
+        }
+        then accept;
+    }
+
+    policy-statement RR-in {
+        description "Import EVPN routes from RR clients";
+        from {
+            family evpn;
+        }
+        then accept;
+    }
+
+    policy-statement underlay-ecmp {
+        description "Configure per-flow hashing for ECMP";
+        term ecmp-hash {
+            then {
+                load-balance per-flow;
+            }
+        }
+    }
+}
+
+firewall {
+    family inet {
+        filter protect-loopback {
+            description "Protect loopback from unauthorized access";
+            term allow-bgp {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol tcp;
+                    destination-port bgp;
+                }
+                then accept;
+            }
+            term allow-bfd {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol udp;
+                    destination-port 3784-3785;
+                }
+                then accept;
+            }
+            term allow-ssh {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol tcp;
+                    destination-port ssh;
+                }
+                then accept;
+            }
+            term allow-snmp {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol udp;
+                    destination-port snmp;
+                }
+                then accept;
+            }
+            term allow-ntp {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol udp;
+                    destination-port ntp;
+                }
+                then accept;
+            }
+            term allow-icmp {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol icmp;
+                }
+                then accept;
+            }
+            term allow-netconf {
+                from {
+                    destination-address {
+                        {{ loopback_ip }}/32;
+                    }
+                    protocol tcp;
+                    destination-port 830;
+                }
+                then accept;
+            }
+            term deny-rest {
+                then {
+                    discard;
+                }
+            }
+        }
+    }
+}
+
+interfaces {
+    lo0 {
+        unit 0 {
+            family inet {
+                filter {
+                    input protect-loopback;
+                }
+            }
+        }
+    }
+}
+
+system {
+    services {
+        ssh {
+            protocol-version v2;
+            authentication-order password;
+            root-login deny;
+            max-sessions-per-connection 32;
+            max-concurrent-sessions 32;
+            rate-limit 5;
+        }
+        netconf {
+            ssh;
+            max-concurrent-sessions 32;
+        }
+        snmp {
+            disable;
+        }
+    }
+}
+
+chassis {
+    aggregated-devices {
+        ethernet {
+            device-count 0;
+        }
+    }
+}
+
+event-options {
+    generate-event-upon-crash;
+    policy log-reboot {
+        events [ui_restart_event];
+        then {
+            add-attribute subject "Device rebooted";
+            log-message "Device reboot event captured";
+        }
+    }
+}

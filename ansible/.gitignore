@@ -1,0 +1,55 @@
+# Ansible
+*.retry
+*.cfg.bak
+*.conf.bak
+.ansible/
+ansible.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Secrets and sensitive data
+.vault_pass
+vault_pass.txt
+inventory/group_vars/vault.yml
+inventory/group_vars/*secret*
+inventory/host_vars/*secret*
+
+# Backups and temporary files
+*.bak
+*.tmp
+*.temp
+*~
+backups/
+temp/
+tmp/
+
+# Device configurations
+*.conf
+*.set
+*.xml
+configs/
+
+# Logs
+*.log
+logs/
+
+# Local development
+.env
+.env.local
+local_vars.yml

@@ -1,0 +1,71 @@
+---
+# BGP validation task file
+# Validates BGP sessions are established and healthy
+
+- name: Get BGP summary
+  junos_command:
+    commands:
+      - "show bgp summary"
+  register: bgp_summary_output
+  tags:
+    - validate
+    - bgp
+
+- name: Extract BGP session count
+  set_fact:
+    bgp_established: "{{ bgp_summary_output.stdout[0] | regex_search('([0-9]+) established') | regex_replace('[^0-9]', '') }}"
+    bgp_configured: "{{ bgp_summary_output.stdout[0] | regex_search('Groups: ([0-9]+)') | regex_replace('[^0-9]', '') | default('0') }}"
+  tags:
+    - validate
+    - bgp
+
+- name: Display BGP summary
+  debug:
+    msg:
+      - "Device: {{ inventory_hostname }}"
+      - "BGP Sessions Established: {{ bgp_established }}"
+      - "BGP Configured Groups: {{ bgp_configured }}"
+  tags:
+    - validate
+    - bgp
+
+- name: Validate BGP sessions are up
+  assert:
+    that:
+      - bgp_established | int >= 1
+    fail_msg: "No BGP sessions established on {{ inventory_hostname }}"
+    success_msg: "BGP sessions validated successfully: {{ bgp_established }} established"
+  tags:
+    - validate
+    - bgp
+
+- name: Get BGP neighbor details
+  junos_command:
+    commands:
+      - "show bgp neighbor summary"
+  register: bgp_neighbor_summary
+  ignore_errors: yes
+  tags:
+    - validate
+    - bgp
+    - neighbors
+
+- name: Check for BGP session flaps
+  junos_command:
+    commands:
+      - "show bgp neighbor | match \"Flaps\""
+  register: bgp_flaps
+  ignore_errors: yes
+  tags:
+    - validate
+    - bgp
+    - health
+
+- name: Display BGP neighbor status
+  debug:
+    msg: "{{ bgp_neighbor_summary.stdout_lines }}"
+  when: bgp_neighbor_summary is succeeded
+  tags:
+    - validate
+    - bgp
+    - neighbors

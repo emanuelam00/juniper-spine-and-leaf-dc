@@ -1,0 +1,272 @@
+---
+# Deploy BGP underlay and EVPN overlay configuration
+# Includes: BGP underlay, EVPN, BFD, route policies, ECMP
+
+- name: Deploy Routing Configuration to Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "30%"
+
+  pre_tasks:
+    - name: Display routing deployment info
+      debug:
+        msg:
+          - "Deploying routing to {{ inventory_hostname }}"
+          - "BGP ASN: {{ bgp_asn }}"
+          - "Router ID: {{ router_id }}"
+          - "Device Role: {{ bgp_role }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Configure routing options
+      junos_config:
+        lines:
+          - set routing-options router-id {{ router_id }}
+          - set routing-options autonomous-system {{ bgp_asn }}
+          - set routing-options graceful-restart restart-duration 120
+          - set routing-options graceful-restart stale-route-timeout 600
+        comment: "Configure routing options"
+      tags:
+        - routing_options
+        - bgp
+
+    - name: Configure BGP group for underlay on spines
+      junos_config:
+        lines:
+          - set protocols bgp group underlay type external
+          - set protocols bgp group underlay local-as {{ bgp_asn }}
+          - set protocols bgp group underlay neighbor-as {{ asn_leaf_base }}
+          - set protocols bgp group underlay authentication-key "{{ vault_bgp_auth_key }}"
+          - set protocols bgp group underlay import import-underlay
+          - set protocols bgp group underlay export export-underlay
+          - set protocols bgp group underlay bfd-liveness-detection minimum-interval {{ bfd_config.interval }}
+          - set protocols bgp group underlay bfd-liveness-detection multiplier {{ bfd_config.multiplier }}
+          - set protocols bgp group underlay multipath
+          - set protocols bgp group underlay add-path receive
+          - set protocols bgp group underlay add-path send path-count 32
+          - set protocols bgp group underlay family inet unicast
+        comment: "Configure BGP underlay group"
+      when: device_type == "spine"
+      tags:
+        - bgp
+        - underlay
+
+    - name: Configure BGP neighbors on spines
+      junos_config:
+        lines:
+          - set protocols bgp group underlay neighbor {{ item.neighbor_ip }} description "{{ item.description }}"
+          - set protocols bgp group underlay neighbor {{ item.neighbor_ip }} local-address {{ item.local_ip }}
+        comment: "Configure BGP neighbor {{ item.peer_name }}"
+      loop: "{{ bgp_neighbors | default([]) }}"
+      when: device_type == "spine"
+      tags:
+        - bgp
+        - neighbors
+        - underlay
+
+    - name: Configure BGP group for underlay on leaves
+      junos_config:
+        lines:
+          - set protocols bgp group underlay type external
+          - set protocols bgp group underlay local-as {{ bgp_asn }}
+          - set protocols bgp group underlay neighbor-as {{ asn_spine }}
+          - set protocols bgp group underlay authentication-key "{{ vault_bgp_auth_key }}"
+          - set protocols bgp group underlay import import-underlay
+          - set protocols bgp group underlay export export-underlay
+          - set protocols bgp group underlay bfd-liveness-detection minimum-interval {{ bfd_config.interval }}
+          - set protocols bgp group underlay bfd-liveness-detection multiplier {{ bfd_config.multiplier }}
+          - set protocols bgp group underlay multipath
+          - set protocols bgp group underlay add-path receive
+          - set protocols bgp group underlay add-path send path-count 32
+          - set protocols bgp group underlay family inet unicast
+        comment: "Configure BGP underlay group"
+      when: device_type == "leaf"
+      tags:
+        - bgp
+        - underlay
+
+    - name: Configure BGP neighbors on leaves
+      junos_config:
+        lines:
+          - set protocols bgp group underlay neighbor {{ item.neighbor_ip }} description "{{ item.description }}"
+          - set protocols bgp group underlay neighbor {{ item.neighbor_ip }} local-address {{ item.local_ip }}
+        comment: "Configure BGP neighbor {{ item.peer_name }}"
+      loop: "{{ bgp_neighbors | default([]) }}"
+      when: device_type == "leaf"
+      tags:
+        - bgp
+        - neighbors
+        - underlay
+
+    - name: Configure EVPN on spines (Route Reflectors)
+      junos_config:
+        lines:
+          - set protocols bgp group evpn type internal
+          - set protocols bgp group evpn local-as {{ bgp_asn }}
+          - set protocols bgp group evpn cluster {{ evpn_rr_cluster_id }}
+          - set protocols bgp group evpn family evpn signaling
+          - set protocols bgp group evpn multipath
+          - set protocols bgp group evpn add-path receive
+          - set protocols bgp group evpn add-path send path-count 32
+        comment: "Configure EVPN on spine (RR)"
+      when: device_type == "spine"
+      tags:
+        - evpn
+        - overlay
+
+    - name: Configure EVPN neighbors on spines
+      junos_config:
+        lines:
+          - set protocols bgp group evpn neighbor {{ item.peer_ip }} description "{{ item.description }}"
+          - set protocols bgp group evpn neighbor {{ item.peer_ip }} peer-as {{ item.peer_asn }}
+        comment: "Configure EVPN neighbor {{ item.description }}"
+      loop: "{{ evpn_rr_clients | default([]) }}"
+      when: device_type == "spine"
+      tags:
+        - evpn
+        - neighbors
+        - overlay
+
+    - name: Configure EVPN on leaves (clients)
+      junos_config:
+        lines:
+          - set protocols bgp group evpn type internal
+          - set protocols bgp group evpn local-as {{ bgp_asn }}
+          - set protocols bgp group evpn family evpn signaling
+          - set protocols bgp group evpn multipath
+          - set protocols bgp group evpn add-path receive
+          - set protocols bgp group evpn add-path send path-count 32
+        comment: "Configure EVPN on leaf (client)"
+      when: device_type == "leaf"
+      tags:
+        - evpn
+        - overlay
+
+    - name: Configure EVPN neighbors on leaves
+      junos_config:
+        lines:
+          - set protocols bgp group evpn neighbor 192.0.2.1 description "Spine-RR-1"
+          - set protocols bgp group evpn neighbor 192.0.2.1 peer-as {{ asn_spine }}
+          - set protocols bgp group evpn neighbor 192.0.2.2 description "Spine-RR-2"
+          - set protocols bgp group evpn neighbor 192.0.2.2 peer-as {{ asn_spine }}
+        comment: "Configure EVPN RR neighbors"
+      when: device_type == "leaf"
+      tags:
+        - evpn
+        - neighbors
+        - overlay
+
+    - name: Configure VXLAN encapsulation
+      junos_config:
+        lines:
+          - set interfaces vtep unit 0 family inet address 127.0.0.1/32
+          - set protocols evpn encapsulation vxlan
+          - set protocols evpn extended-vni-list all
+          - set switch-options vtep-source-interface lo0.0
+          - set switch-options route-distinguisher {{ bgp_asn }}:{{ host_id }}
+          - set switch-options vrf-import target:{{ bgp_asn }}:1
+          - set switch-options vrf-export target:{{ bgp_asn }}:1
+        comment: "Configure VXLAN and EVPN"
+      when: vxlan_enabled and device_type == "leaf"
+      tags:
+        - vxlan
+        - evpn
+        - overlay
+
+    - name: Configure VRFs on leaves
+      junos_config:
+        lines:
+          - set routing-instances {{ item.name }} instance-type vrf
+          - set routing-instances {{ item.name }} description "{{ item.description }}"
+          - set routing-instances {{ item.name }} route-distinguisher {{ item.rd }}
+          - set routing-instances {{ item.name }} vrf-target target:{{ item.rt }}
+          - set routing-instances {{ item.name }} vrf-table-label
+        comment: "Create VRF {{ item.name }}"
+      loop: "{{ vrfs | default([]) }}"
+      when: device_type == "leaf"
+      tags:
+        - vrf
+        - routing
+
+    - name: Configure route policies for underlay export
+      junos_config:
+        lines:
+          - set policy-options policy-statement export-underlay term 1 from protocol direct
+          - set policy-options policy-statement export-underlay term 1 then accept
+          - set policy-options policy-statement export-underlay term 2 then reject
+        comment: "Configure export-underlay policy"
+      tags:
+        - policy
+        - bgp
+
+    - name: Configure route policies for underlay import
+      junos_config:
+        lines:
+          - set policy-options policy-statement import-underlay term 1 then accept
+        comment: "Configure import-underlay policy"
+      tags:
+        - policy
+        - bgp
+
+    - name: Configure ECMP
+      junos_config:
+        lines:
+          - set routing-options forwarding-table export-configure
+          - set routing-options forwarding-table ecmp-fast-reroute
+          - set routing-options forwarding-table load-balance per-flow
+        comment: "Configure ECMP"
+      tags:
+        - ecmp
+        - routing
+
+    - name: Configure max paths for load balancing
+      junos_config:
+        lines:
+          - set protocols bgp group underlay multipath multiple-as
+          - set routing-options forwarding-table chained-composite-next-hop ingress lsp-mode
+        comment: "Configure max paths"
+      tags:
+        - multipath
+        - ecmp
+
+    - name: Configure prefix limits
+      junos_config:
+        lines:
+          - set protocols bgp group underlay family inet unicast prefix-limit maximum 10000
+          - set protocols bgp group underlay family inet unicast prefix-limit teardown 80 idle-timeout 10
+        comment: "Configure BGP prefix limits"
+      tags:
+        - bgp
+        - limits
+
+  post_tasks:
+    - name: Commit routing configuration
+      junos_config:
+        comment: "Routing configuration deployment by Ansible"
+        confirm_commit: yes
+        confirm: yes
+      tags:
+        - commit
+
+    - name: Verify BGP status
+      junos_command:
+        commands:
+          - "show bgp summary"
+          - "show route summary"
+      register: routing_status
+      tags:
+        - verify
+
+    - name: Display BGP verification
+      debug:
+        msg: "{{ routing_status.stdout_lines }}"
+      tags:
+        - verify
+
+    - name: Wait for BGP convergence
+      pause:
+        seconds: 10
+      when: inventory_hostname in groups['spines']
+      tags:
+        - wait

@@ -1,0 +1,545 @@
+# Prometheus Alert Rules for Juniper Spine-Leaf Fabric
+# Production-ready alerting rules with severity levels
+
+groups:
+  # ==========================================
+  # INTERFACE ALERTS
+  # ==========================================
+  - name: interface_alerts
+    interval: 30s
+    rules:
+      # Interface Down Alert
+      - alert: InterfaceDown
+        expr: |
+          sysUpTime > 0 and (
+            snmp_ifOperStatus{ifAlias!~"unused|spare|backup|monitor"} == 2
+          )
+        for: 60s
+        labels:
+          severity: critical
+          category: interface
+          action: page
+        annotations:
+          summary: "Interface DOWN on {{ $labels.device_name }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} ({{ $labels.management_ip }})
+            has been down for more than 60 seconds.
+
+            Impact: Loss of connectivity on this port.
+            Action: Verify cable connection, check for hardware issues.
+
+      # High Interface Utilization (Inbound)
+      - alert: HighInterfaceUtilizationIn
+        expr: |
+          (rate(snmp_ifInOctets[5m]) * 8) / (snmp_ifHighSpeed * 1000000) > 0.85
+          and snmp_ifOperStatus == 1
+          and snmp_ifHighSpeed > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: interface
+          action: ticket
+        annotations:
+          summary: "High inbound utilization on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} has inbound
+            utilization above 85% (current: {{ printf "%.1f" $value }}%).
+
+            Impact: Interface approaching capacity, risk of congestion.
+            Action: Investigate traffic pattern, consider traffic engineering.
+
+      # High Interface Utilization (Outbound)
+      - alert: HighInterfaceUtilizationOut
+        expr: |
+          (rate(snmp_ifOutOctets[5m]) * 8) / (snmp_ifHighSpeed * 1000000) > 0.85
+          and snmp_ifOperStatus == 1
+          and snmp_ifHighSpeed > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: interface
+          action: ticket
+        annotations:
+          summary: "High outbound utilization on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} has outbound
+            utilization above 85% (current: {{ printf "%.1f" $value }}%).
+
+            Impact: Interface approaching capacity, risk of congestion.
+            Action: Investigate traffic pattern, consider traffic engineering.
+
+      # Interface Errors
+      - alert: HighInterfaceErrors
+        expr: |
+          rate(snmp_ifInErrors[5m]) > 100
+          or rate(snmp_ifOutErrors[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          category: interface
+          action: investigation
+        annotations:
+          summary: "High error rate on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} shows high error rates.
+            In Errors: {{ printf "%.0f" $value }} per second
+
+            Impact: Potential link quality issues.
+            Action: Check cable condition, verify FEC settings, monitor for escalation.
+
+      # CRC Errors
+      - alert: HighCRCErrors
+        expr: |
+          rate(snmp_jnxExOpticalCRCErrors[5m]) > 100
+        for: 5m
+        labels:
+          severity: critical
+          category: optics
+          action: page
+        annotations:
+          summary: "High CRC errors on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} shows high CRC error rate
+            ({{ printf "%.0f" $value }} per second).
+
+            Impact: Link integrity compromised, may cause packet loss.
+            Action: Replace SFP/QSFP transceiver immediately.
+
+      # Optical Power Too Low
+      - alert: OpticalPowerTooLow
+        expr: |
+          snmp_jnxExOpticalRxPower < -15
+        for: 60s
+        labels:
+          severity: critical
+          category: optics
+          action: page
+        annotations:
+          summary: "Low RX power on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} has RX power below threshold.
+            Current Power: {{ printf "%.2f" $value }} dBm (threshold: -15 dBm)
+
+            Impact: Link may drop, signal integrity at risk.
+            Action: Check cable/fiber continuity, replace optic if needed.
+
+      # Optical Power Too High
+      - alert: OpticalPowerTooHigh
+        expr: |
+          snmp_jnxExOpticalRxPower > 10
+        for: 60s
+        labels:
+          severity: warning
+          category: optics
+          action: investigation
+        annotations:
+          summary: "High RX power on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} has RX power above safe level.
+            Current Power: {{ printf "%.2f" $value }} dBm (threshold: +10 dBm)
+
+            Impact: Potential receiver saturation or reflections.
+            Action: Check for fiber reflections, verify attenuators.
+
+      # Interface Discards
+      - alert: HighInterfaceDiscards
+        expr: |
+          rate(snmp_ifInDiscards[5m]) > 1000
+          or rate(snmp_ifOutDiscards[5m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          category: interface
+          action: investigation
+        annotations:
+          summary: "High discard rate on {{ $labels.device_name }}/{{ $labels.ifAlias }}"
+          description: |
+            Interface {{ $labels.ifAlias }} on {{ $labels.device_name }} is discarding packets.
+            Discard Rate: {{ printf "%.0f" $value }} per second
+
+            Impact: Packet loss on interface.
+            Action: Check for buffer overflow, policing rules, or MTU issues.
+
+  # ==========================================
+  # BGP AND ROUTING ALERTS
+  # ==========================================
+  - name: bgp_alerts
+    interval: 30s
+    rules:
+      # BGP Neighbor Down
+      - alert: BGPNeighborDown
+        expr: |
+          bgpPeerState{bgpPeerState!="6"}
+          and bgpPeerState != -1
+        for: 60s
+        labels:
+          severity: critical
+          category: bgp
+          action: page
+        annotations:
+          summary: "BGP neighbor {{ $labels.bgpPeerAddr }} DOWN on {{ $labels.device_name }}"
+          description: |
+            BGP neighbor {{ $labels.bgpPeerAddr }} (AS{{ $labels.bgpPeerRemoteAs }})
+            on {{ $labels.device_name }} is not in Established state.
+            Current State: {{ $value }}
+
+            Impact: Loss of routing from/to this neighbor.
+            Action: Check neighbor connectivity, verify BGP configuration.
+
+      # BGP Route Flapping
+      - alert: BGPRouteFlapping
+        expr: |
+          rate(bgpPeerInUpdates[5m]) > 10
+          or rate(bgpPeerOutUpdates[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: bgp
+          action: investigation
+        annotations:
+          summary: "BGP route instability detected on {{ $labels.device_name }}"
+          description: |
+            BGP neighbor {{ $labels.bgpPeerAddr }} on {{ $labels.device_name }}
+            is showing high UPDATE message rate ({{ printf "%.0f" $value }}/sec).
+
+            Impact: Potential routing instability, packet loss possible.
+            Action: Investigate prefix stability, check for routing loops.
+
+      # BGP Prefix Count Increase
+      - alert: BGPPrefixCountIncrease
+        expr: |
+          (bgpRcvdPrefixes - bgpRcvdPrefixes offset 1h) / (bgpRcvdPrefixes offset 1h) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          category: bgp
+          action: investigation
+        annotations:
+          summary: "BGP prefix count increased significantly on {{ $labels.device_name }}"
+          description: |
+            BGP prefix count increased >20% in 1 hour on {{ $labels.device_name }}.
+
+            Impact: Significant routing table growth, potential route leak.
+            Action: Investigate source, verify import policies, check for leaks.
+
+      # BGP Prefix Count Decrease
+      - alert: BGPPrefixCountDecrease
+        expr: |
+          (bgpRcvdPrefixes offset 1h - bgpRcvdPrefixes) / (bgpRcvdPrefixes offset 1h) > 0.3
+        for: 10m
+        labels:
+          severity: critical
+          category: bgp
+          action: page
+        annotations:
+          summary: "BGP prefix count decreased significantly on {{ $labels.device_name }}"
+          description: |
+            BGP prefix count decreased >30% in 1 hour on {{ $labels.device_name }}.
+
+            Impact: Loss of reachability to affected prefixes.
+            Action: Immediately investigate neighbor status and routing policies.
+
+  # ==========================================
+  # SYSTEM HEALTH ALERTS
+  # ==========================================
+  - name: system_health_alerts
+    interval: 30s
+    rules:
+      # High CPU Utilization
+      - alert: HighCPUUtilization
+        expr: |
+          jnxOperatingCPU >= 80
+        for: 5m
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "High CPU utilization on {{ $labels.device_name }}"
+          description: |
+            CPU utilization on {{ $labels.device_name }} is {{ printf "%.0f" $value }}% (threshold: 80%).
+
+            Impact: Potential performance degradation, routing delays.
+            Action: Investigate running processes, check for runaway daemons.
+
+      # High Memory Utilization
+      - alert: HighMemoryUtilization
+        expr: |
+          jnxOperatingMemory >= 85
+        for: 5m
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "High memory utilization on {{ $labels.device_name }}"
+          description: |
+            Memory utilization on {{ $labels.device_name }} is {{ printf "%.0f" $value }}% (threshold: 85%).
+
+            Impact: Risk of system crash, memory exhaustion.
+            Action: Monitor closely, prepare for reboot if necessary.
+
+      # High Temperature (Intake)
+      - alert: HighTemperatureIntake
+        expr: |
+          jnxChassisTempIntake >= 50
+        for: 5m
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "High intake temperature on {{ $labels.device_name }}"
+          description: |
+            Intake air temperature on {{ $labels.device_name }} is {{ printf "%.0f" $value }}°C (threshold: 50°C).
+
+            Impact: Risk of hardware failure, thermal shutdown.
+            Action: Check cooling system, verify airflow, prepare failover.
+
+      # High Temperature (Exhaust)
+      - alert: HighTemperatureExhaust
+        expr: |
+          jnxChassisTempExhaust >= 60
+        for: 5m
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "High exhaust temperature on {{ $labels.device_name }}"
+          description: |
+            Exhaust air temperature on {{ $labels.device_name }} is {{ printf "%.0f" $value }}°C (threshold: 60°C).
+
+            Impact: Risk of hardware failure, thermal shutdown.
+            Action: Check cooling system, check for blockages, prepare failover.
+
+      # Power Supply Failure
+      - alert: PowerSupplyFailure
+        expr: |
+          jnxPowerSupplyStatus == 2
+        for: 60s
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "Power supply failure on {{ $labels.device_name }}"
+          description: |
+            Power supply on {{ $labels.device_name }} has failed.
+
+            Impact: Device operating on single PSU, no redundancy.
+            Action: Replace failed power supply immediately.
+
+      # Fan Failure
+      - alert: FanFailure
+        expr: |
+          jnxFanStatus == 2
+        for: 60s
+        labels:
+          severity: critical
+          category: system
+          action: page
+        annotations:
+          summary: "Fan failure on {{ $labels.device_name }}"
+          description: |
+            Fan on {{ $labels.device_name }} has failed.
+
+            Impact: Reduced cooling capacity, temperature may rise.
+            Action: Replace failed fan immediately.
+
+  # ==========================================
+  # EVPN AND L2VPN ALERTS
+  # ==========================================
+  - name: evpn_alerts
+    interval: 30s
+    rules:
+      # EVPN MAC Count Growth
+      - alert: EVPNMACCountIncrease
+        expr: |
+          (jnxBgpL2vpnMACCount - jnxBgpL2vpnMACCount offset 1d) / (jnxBgpL2vpnMACCount offset 1d) > 0.3
+        for: 30m
+        labels:
+          severity: warning
+          category: evpn
+          action: investigation
+        annotations:
+          summary: "EVPN MAC count increased >30% in 24h on {{ $labels.device_name }}"
+          description: |
+            EVPN MAC address count on {{ $labels.device_name }} increased by >30% in last 24 hours.
+            Current: {{ printf "%.0f" $value }} MACs
+
+            Impact: Potential MAC explosion or misconfiguration.
+            Action: Investigate new hosts/VMs, verify VLAN scope.
+
+      # EVPN MAC Flapping
+      - alert: EVPNMACFlapping
+        expr: |
+          increase(jnxBgpL2vpnMACMoves[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          category: evpn
+          action: investigation
+        annotations:
+          summary: "EVPN MAC flapping detected on {{ $labels.device_name }}"
+          description: |
+            EVPN MAC addresses on {{ $labels.device_name }} are moving between attachment points.
+            Moves in last 5 minutes: {{ printf "%.0f" $value }}
+
+            Impact: Potential loop or host misconfiguration.
+            Action: Investigate affected MACs, check for loops.
+
+      # Type-5 Route Withdrawal
+      - alert: EVPNType5RouteWithdrawal
+        expr: |
+          (jnxBgpL2vpnType5Routes offset 1h - jnxBgpL2vpnType5Routes) / (jnxBgpL2vpnType5Routes offset 1h) > 0.3
+        for: 10m
+        labels:
+          severity: critical
+          category: evpn
+          action: page
+        annotations:
+          summary: "EVPN Type-5 routes withdrawn on {{ $labels.device_name }}"
+          description: |
+            EVPN Type-5 (external) routes decreased >30% in 1 hour on {{ $labels.device_name }}.
+
+            Impact: Loss of external route distribution, potential East-West connectivity loss.
+            Action: Check external route originator, verify BGP policies.
+
+  # ==========================================
+  # DEVICE REACHABILITY ALERTS
+  # ==========================================
+  - name: device_reachability_alerts
+    interval: 30s
+    rules:
+      # Device Unreachable (via SNMP)
+      - alert: DeviceUnreachable
+        expr: |
+          up{job=~"snmp-.*"} == 0
+        for: 120s
+        labels:
+          severity: critical
+          category: reachability
+          action: page
+        annotations:
+          summary: "Device {{ $labels.device_name }} unreachable"
+          description: |
+            {{ $labels.device_name }} ({{ $labels.management_ip }}) failed SNMP connectivity check
+            for more than 2 minutes.
+
+            Impact: Loss of monitoring visibility, possible network issue.
+            Action: Verify management network connectivity, check device status.
+
+      # Device High Latency
+      - alert: DeviceHighLatency
+        expr: |
+          probe_duration_seconds > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          category: reachability
+          action: investigation
+        annotations:
+          summary: "High management plane latency to {{ $labels.device_name }}"
+          description: |
+            Management plane latency to {{ $labels.device_name }} is {{ printf "%.3f" $value }}s (threshold: 0.5s).
+
+            Impact: Slow management operations, potential config delays.
+            Action: Investigate management network, check for congestion.
+
+  # ==========================================
+  # FABRIC-WIDE ALERTS
+  # ==========================================
+  - name: fabric_alerts
+    interval: 30s
+    rules:
+      # Spine Failure
+      - alert: SpineFailure
+        expr: |
+          up{device_type="spine", job=~"snmp-.*"} == 0
+        for: 60s
+        labels:
+          severity: critical
+          category: fabric
+          action: page
+        annotations:
+          summary: "Spine device {{ $labels.device_name }} is offline"
+          description: |
+            Spine device {{ $labels.device_name }} ({{ $labels.management_ip }}) is unreachable.
+
+            Impact: Fabric capacity reduced, potential packet loss during convergence.
+            Action: Immediate failover assessment, check for cascading failures.
+
+      # Multiple Leaves Down
+      - alert: MultipleLeavesFailed
+        expr: |
+          count(up{device_type="leaf", job=~"snmp-.*"} == 0) > 3
+        for: 60s
+        labels:
+          severity: critical
+          category: fabric
+          action: page
+        annotations:
+          summary: "{{ $value }} leaf devices are offline"
+          description: |
+            {{ $value }} leaf switches are unreachable simultaneously.
+
+            Impact: Potential large-scale outage affecting multiple tenants.
+            Action: Immediate investigation, check for power issues or fabric partition.
+
+      # ECMP Imbalance
+      - alert: ECMPImbalance
+        expr: |
+          (max(rate(snmp_ifOutOctets[5m])) - min(rate(snmp_ifOutOctets[5m]))) / max(rate(snmp_ifOutOctets[5m])) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          category: fabric
+          action: investigation
+        annotations:
+          summary: "ECMP imbalance detected (>30%)"
+          description: |
+            ECMP load balancing across fabric shows >30% imbalance between paths.
+
+            Impact: Suboptimal bandwidth utilization.
+            Action: Investigate path weights, check for failed/degraded links.
+
+  # ==========================================
+  # ALERTMANAGER SELF-HEALTH
+  # ==========================================
+  - name: alertmanager_health
+    interval: 30s
+    rules:
+      # Alertmanager Down
+      - alert: AlertmanagerDown
+        expr: |
+          up{job="alertmanager"} == 0
+        for: 60s
+        labels:
+          severity: critical
+          category: infrastructure
+          action: page
+        annotations:
+          summary: "Alertmanager is down"
+          description: |
+            Alertmanager service is unreachable for more than 60 seconds.
+
+            Impact: Alert notifications may not be delivered.
+            Action: Restart Alertmanager service immediately.
+
+      # Prometheus High Memory Usage
+      - alert: PrometheusHighMemory
+        expr: |
+          process_resident_memory_bytes{job="prometheus"} > 2147483648
+        for: 5m
+        labels:
+          severity: warning
+          category: infrastructure
+          action: investigation
+        annotations:
+          summary: "Prometheus using {{ printf "%.0f" $value }} bytes of memory"
+          description: |
+            Prometheus memory usage exceeds 2GB threshold.
+
+            Impact: Risk of OOM crash.
+            Action: Review retention policies, consider increasing resources.

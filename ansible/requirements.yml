@@ -1,0 +1,36 @@
+---
+# Ansible Galaxy requirements for Juniper datacenter fabric automation
+
+collections:
+  - name: junipernetworks.junos
+    version: ">=4.1.0"
+    description: "Juniper Networks Junos Ansible Collection"
+
+  - name: ansible.netcommon
+    version: ">=5.0.0"
+    description: "Ansible Network Common Collection"
+
+  - name: community.general
+    version: ">=6.0.0"
+    description: "Community General Collection for utilities"
+
+# Optional collections for advanced use cases
+# Uncomment to install additional functionality
+
+# - name: community.network
+#   version: ">=5.0.0"
+#   description: "Community Network Collection"
+
+# - name: ansible.posix
+#   version: ">=1.4.0"
+#   description: "POSIX utilities collection"
+
+# Python requirements
+# Install with: pip install -r python-requirements.txt
+
+# Key requirements:
+# - Ansible >= 2.9
+# - ncclient >= 0.6.10 (for NETCONF support)
+# - jinja2 >= 2.11
+# - pyyaml >= 5.3
+# - paramiko >= 2.7.0 (for SSH)

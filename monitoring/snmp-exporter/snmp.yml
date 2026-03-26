@@ -1,0 +1,226 @@
+# SNMP Exporter Configuration for Juniper Devices
+# Production-ready SNMP module configuration
+
+# Default module for Juniper network devices
+juniper_device:
+  walk:
+    # System MIB
+    - sysDescr
+    - sysObjectID
+    - sysUpTime
+    - sysContact
+    - sysName
+    - sysLocation
+    - sysServices
+
+    # System MIB - Operational Table
+    - interfaces
+    - ifXTable
+
+    # IP MIB
+    - ip
+
+    # TCP/UDP
+    - tcp
+    - udp
+    - icmp
+    - snmp
+
+    # Juniper Enterprise MIB
+    - jnxChassisTable
+    - jnxOperatingTable
+    - jnxPowerSupply
+    - jnxFan
+    - jnxAlarm
+    - jnxExOptical
+    - jnxExFpc
+    - jnxExPic
+    - jnxBgp
+    - jnxBgpL2vpn
+    - jnxRouteTable
+
+  version: 3
+  max_repetitions: 25
+  timeout: 10s
+  retries: 3
+
+  auth:
+    security_level: authPriv
+    username: monitoring
+    auth_protocol: MD5
+    auth_password: "${SNMP_AUTH_PASSWORD}"
+    priv_protocol: AES
+    priv_password: "${SNMP_PRIV_PASSWORD}"
+
+  get:
+    # Request specific OIDs
+    - sysDescr.0
+    - sysObjectID.0
+    - sysUpTime.0
+    - sysName.0
+
+# Spine-specific module (extended monitoring)
+juniper_spine:
+  walk:
+    - interfaces
+    - ifXTable
+    - ip
+    - tcp
+    - udp
+    - icmp
+    - jnxChassisTable
+    - jnxOperatingTable
+    - jnxExOptical
+    - jnxBgp
+    - jnxBgpL2vpn
+    - jnxExFpc
+    - jnxMplsLspStats
+    - jnxMplsTunnelTable
+
+  version: 3
+  max_repetitions: 25
+  timeout: 10s
+  retries: 3
+
+  auth:
+    security_level: authPriv
+    username: monitoring
+    auth_protocol: MD5
+    auth_password: "${SNMP_AUTH_PASSWORD}"
+    priv_protocol: AES
+    priv_password: "${SNMP_PRIV_PASSWORD}"
+
+# Leaf-specific module
+juniper_leaf:
+  walk:
+    - interfaces
+    - ifXTable
+    - ip
+    - tcp
+    - udp
+    - icmp
+    - jnxChassisTable
+    - jnxOperatingTable
+    - jnxExOptical
+    - jnxBgp
+    - jnxBgpL2vpn
+    - jnxL2cpTable
+    - jnxMacTable
+    - jnxVlanTable
+
+  version: 3
+  max_repetitions: 25
+  timeout: 10s
+  retries: 3
+
+  auth:
+    security_level: authPriv
+    username: monitoring
+    auth_protocol: MD5
+    auth_password: "${SNMP_AUTH_PASSWORD}"
+    priv_protocol: AES
+    priv_password: "${SNMP_PRIV_PASSWORD}"
+
+# Minimal module for quick health checks
+juniper_minimal:
+  walk:
+    - sysUpTime
+    - ifOperStatus
+    - jnxOperatingCPU
+    - jnxOperatingMemory
+    - jnxChassisTemp
+    - bgpPeerState
+
+  version: 3
+  max_repetitions: 25
+  timeout: 10s
+  retries: 3
+
+  auth:
+    security_level: authPriv
+    username: monitoring
+    auth_protocol: MD5
+    auth_password: "${SNMP_AUTH_PASSWORD}"
+    priv_protocol: AES
+    priv_password: "${SNMP_PRIV_PASSWORD}"
+
+# Legacy SNMPv2c support (if needed)
+juniper_v2c:
+  walk:
+    - interfaces
+    - ifXTable
+    - jnxChassisTable
+    - jnxOperatingTable
+    - jnxExOptical
+
+  version: 2c
+  community: public
+  max_repetitions: 25
+  timeout: 10s
+  retries: 3
+
+# ==========================================
+# OID Mapping Reference
+# ==========================================
+#
+# Common Juniper Enterprise OIDs:
+#
+# jnxChassisTable (1.3.6.1.4.1.2636.3.1.2.1):
+#   - jnxChassisSer - Serial number
+#   - jnxChassisModel - Model number
+#   - jnxChassisTempAlarm - Temperature alarm status
+#
+# jnxOperatingTable (1.3.6.1.4.1.2636.3.1.13.1):
+#   - jnxOperatingCPU - CPU utilization (%)
+#   - jnxOperatingMemory - Memory utilization (%)
+#   - jnxOperatingTemp - Temperature (Celsius)
+#   - jnxOperatingRE - Routing Engine number
+#   - jnxOperatingState - Operating state
+#
+# jnxExOptical (1.3.6.1.4.1.2636.3.60.4.1):
+#   - jnxExOpticalModuleTemperature - Temperature (Celsius)
+#   - jnxExOpticalModuleRxPower - RX power (0.1 dBm)
+#   - jnxExOpticalModuleTxPower - TX power (0.1 dBm)
+#   - jnxExOpticalModuleAlarms - Alarm bitmap
+#   - jnxExOpticalCRCErrors - CRC error count
+#
+# BGP MIB (1.3.6.1.2.1.15):
+#   - bgpLocalAs - Local AS number
+#   - bgpPeerState - Session state (1=idle, 2=connect, 3=active, 4=opensent, 5=openconfirm, 6=established)
+#   - bgpPeerInUpdates - Inbound UPDATE messages
+#   - bgpPeerOutUpdates - Outbound UPDATE messages
+#   - bgpRcvdPrefixes - Total received prefixes
+#
+# ==========================================
+# Environment Variables
+# ==========================================
+#
+# Set these in the environment or .env file:
+#
+# SNMP_AUTH_PASSWORD=your-md5-password
+# SNMP_PRIV_PASSWORD=your-aes-password
+#
+# ==========================================
+# Usage with Prometheus
+# ==========================================
+#
+# In prometheus.yml:
+#
+# - job_name: 'snmp'
+#   scrape_interval: 5m
+#   metrics_path: /snmp
+#   params:
+#     module: [juniper_device]
+#   static_configs:
+#     - targets:
+#       - 10.255.0.1
+#       - 10.255.1.1
+#   relabel_configs:
+#     - source_labels: [__address__]
+#       target_label: __param_target
+#     - source_labels: [__param_target]
+#       target_label: instance
+#     - target_label: __address__
+#       replacement: localhost:9116
+#
+# ==========================================

@@ -1,0 +1,246 @@
+---
+# Deploy base configuration to all devices
+# Includes: hostname, users, NTP, syslog, SNMP, DNS, banner, NETCONF
+
+- name: Deploy Base Configuration to Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "30%"
+
+  pre_tasks:
+    - name: Display device info
+      debug:
+        msg: "Configuring base settings on {{ inventory_hostname }} ({{ device_type }})"
+      tags:
+        - always
+
+    - name: Backup running configuration
+      junos_config:
+        backup: yes
+      register: config_backup
+      tags:
+        - backup
+
+  tasks:
+    - name: Configure system hostname
+      junos_config:
+        lines:
+          - set system host-name {{ hostname }}
+        comment: "Set system hostname"
+      tags:
+        - hostname
+        - system
+
+    - name: Configure domain name
+      junos_config:
+        lines:
+          - set system domain-name {{ domain_name }}
+          - set system static-host-mapping {{ hostname }}.{{ domain_name }} {{ loopback_ip }}
+        comment: "Configure domain name and host mapping"
+      tags:
+        - dns
+        - system
+
+    - name: Configure NTP
+      junos_config:
+        lines:
+          - set system ntp server {{ item }} prefer
+        comment: "Configure NTP servers"
+      loop: "{{ ntp_servers }}"
+      tags:
+        - ntp
+        - system
+
+    - name: Configure system timezone
+      junos_config:
+        lines:
+          - set system time-zone {{ ntp_timezone }}
+        comment: "Set system timezone"
+      tags:
+        - timezone
+        - system
+
+    - name: Configure DNS
+      junos_config:
+        lines:
+          - set system name-server {{ item }}
+        comment: "Configure DNS servers"
+      loop: "{{ dns_servers }}"
+      tags:
+        - dns
+        - system
+
+    - name: Configure syslog
+      junos_config:
+        lines:
+          - set system syslog host {{ item }} port {{ syslog_port }} facility {{ syslog_facility }} severity {{ syslog_severity }}
+        comment: "Configure syslog forwarding"
+      loop: "{{ syslog_servers }}"
+      tags:
+        - syslog
+        - logging
+
+    - name: Configure syslog file rotation
+      junos_config:
+        lines:
+          - set system syslog file messages size 100m
+          - set system syslog file messages any any
+          - set system syslog file messages archive size 100m
+          - set system syslog file messages archive files 10
+        comment: "Configure syslog file rotation"
+      tags:
+        - syslog
+        - logging
+
+    - name: Configure SNMP community string
+      junos_config:
+        lines:
+          - set snmp community {{ snmp_community }} authorization read-only
+        comment: "Configure SNMP read-only community"
+      tags:
+        - snmp
+        - monitoring
+
+    - name: Configure SNMP v3 user
+      junos_config:
+        lines:
+          - set snmp v3 usm local-engine user {{ snmp_v3_username }} authentication-sha authentication-password "{{ vault_snmp_v3_password }}"
+          - set snmp v3 usm local-engine user {{ snmp_v3_username }} privacy-aes privacy-password "{{ vault_snmp_v3_password }}"
+        comment: "Configure SNMP v3 user"
+      tags:
+        - snmp
+        - monitoring
+
+    - name: Configure SNMP system contact and location
+      junos_config:
+        lines:
+          - set snmp description "{{ device_type | upper }} - {{ hostname }}"
+          - set snmp location "{{ snmp_locations[0] }}"
+          - set snmp contact "{{ snmp_contact }}"
+        comment: "Set SNMP system parameters"
+      tags:
+        - snmp
+        - monitoring
+
+    - name: Configure SNMP trap targets
+      junos_config:
+        lines:
+          - set snmp trap target {{ item.address }} port {{ item.port }}
+          - set snmp trap target {{ item.address }} tag "{{ item.community }}"
+        comment: "Configure SNMP trap targets"
+      loop: "{{ snmp_trap_targets }}"
+      tags:
+        - snmp
+        - monitoring
+        - traps
+
+    - name: Configure login banner
+      junos_config:
+        lines:
+          - set system login banner "{{ login_banner }}"
+        comment: "Configure login banner"
+      tags:
+        - banner
+        - security
+
+    - name: Configure system users
+      junos_config:
+        lines:
+          - set system login user {{ item.username }} uid {{ item.uid }}
+          - set system login user {{ item.username }} class {{ item.class }}
+          - set system login user {{ item.username }} authentication encrypted-password "{{ item.authentication.encrypted_password }}"
+        comment: "Configure system user {{ item.username }}"
+      loop: "{{ system_users }}"
+      tags:
+        - users
+        - security
+
+    - name: Configure SSH settings
+      junos_config:
+        lines:
+          - set system services ssh port {{ ssh_port }}
+          - set system services ssh protocol-version v2
+          - set system services ssh cipher aes128-ctr
+          - set system services ssh cipher aes192-ctr
+          - set system services ssh cipher aes256-ctr
+          - set system services ssh macs hmac-sha2-256
+          - set system services ssh macs hmac-sha2-512
+          - set system services ssh key-exchange diffie-hellman-group14-sha1
+          - set system services ssh key-exchange diffie-hellman-group-exchange-sha256
+        comment: "Configure SSH security settings"
+      tags:
+        - ssh
+        - security
+
+    - name: Enable NETCONF over SSH
+      junos_config:
+        lines:
+          - set system services netconf ssh
+          - set system services netconf traceoptions file netconf_trace size 10m
+          - set system services netconf traceoptions file netconf_trace files 5
+        comment: "Enable and configure NETCONF"
+      tags:
+        - netconf
+        - management
+
+    - name: Configure console security
+      junos_config:
+        lines:
+          - set system ports console type vt100
+          - set system ports console speed 9600
+          - delete system ports console authentication
+        comment: "Configure console settings"
+      tags:
+        - console
+        - security
+
+    - name: Disable root login
+      junos_config:
+        lines:
+          - set system root-authentication disabled
+        comment: "Disable root login"
+      tags:
+        - security
+
+    - name: Configure graceful shutdown
+      junos_config:
+        lines:
+          - set system graceful-shutdown
+        comment: "Enable graceful shutdown"
+      tags:
+        - system
+        - resilience
+
+    - name: Configure commit and rollback options
+      junos_config:
+        lines:
+          - set system commit synchronize
+          - set system rollback-on-error disable
+        comment: "Configure commit behavior"
+      tags:
+        - system
+        - configuration
+
+  post_tasks:
+    - name: Commit base configuration
+      junos_config:
+        comment: "Base configuration deployment by Ansible"
+        confirm_commit: yes
+        confirm: yes
+      tags:
+        - commit
+
+    - name: Verify configuration was applied
+      junos_command:
+        commands:
+          - "show system hostname"
+          - "show system ntp status"
+      register: verify_output
+      tags:
+        - verify
+
+    - name: Display verification results
+      debug:
+        msg: "{{ verify_output.stdout_lines }}"
+      tags:
+        - verify

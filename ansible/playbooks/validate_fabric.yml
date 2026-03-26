@@ -1,0 +1,345 @@
+---
+# Validate fabric connectivity and health
+# Runs validation checks for BGP, EVPN, LLDP, interfaces, and overall fabric health
+
+- name: Validate Juniper Spine-Leaf Datacenter Fabric
+  hosts: dc_fabric
+  gather_facts: yes
+  serial: "50%"
+
+  vars:
+    validation_results: []
+    validation_failed: false
+
+  pre_tasks:
+    - name: Display validation info
+      debug:
+        msg:
+          - "Validating {{ inventory_hostname }}"
+          - "Device Type: {{ device_type }}"
+          - "Loopback: {{ loopback_ip }}"
+      tags:
+        - always
+
+  tasks:
+    - name: Check NETCONF connectivity
+      junos_command:
+        commands:
+          - "show version | head"
+      register: netconf_check
+      tags:
+        - connectivity
+        - validate
+
+    - name: Retrieve BGP summary
+      junos_command:
+        commands:
+          - "show bgp summary"
+      register: bgp_summary
+      tags:
+        - bgp
+        - validate
+
+    - name: Parse BGP summary for session status
+      set_fact:
+        bgp_sessions_up: "{{ bgp_summary.stdout[0] | regex_search('(\\d+) established') | regex_replace('[^0-9]', '') }}"
+        bgp_sessions_total: "{{ bgp_summary.stdout[0] | regex_search('(\\d+) received') | regex_replace('[^0-9]', '') }}"
+      tags:
+        - bgp
+        - validate
+
+    - name: Validate BGP session count
+      assert:
+        that:
+          - bgp_sessions_up | int > 0
+        fail_msg: "No BGP sessions established on {{ inventory_hostname }}"
+        success_msg: "BGP validation passed: {{ bgp_sessions_up }} sessions up"
+      tags:
+        - bgp
+        - validate
+
+    - name: Get BGP neighbor details
+      junos_command:
+        commands:
+          - "show bgp neighbor"
+      register: bgp_neighbors_detail
+      tags:
+        - bgp
+        - validate
+
+    - name: Check EVPN routes
+      junos_command:
+        commands:
+          - "show route table inet.2"
+      register: evpn_routes
+      when: inventory_hostname in groups['leaves']
+      tags:
+        - evpn
+        - routes
+        - validate
+
+    - name: Validate EVPN routes
+      assert:
+        that:
+          - "'inet.2' in evpn_routes.stdout[0]"
+        fail_msg: "No EVPN routes found on {{ inventory_hostname }}"
+        success_msg: "EVPN routes validation passed"
+      when: inventory_hostname in groups['leaves']
+      tags:
+        - evpn
+        - routes
+        - validate
+
+    - name: Check interface status
+      junos_command:
+        commands:
+          - "show interfaces status"
+      register: interface_status
+      tags:
+        - interfaces
+        - validate
+
+    - name: Count interfaces up
+      set_fact:
+        interfaces_up: "{{ interface_status.stdout[0] | regex_findall('up') | length }}"
+      tags:
+        - interfaces
+        - validate
+
+    - name: Validate interface status
+      assert:
+        that:
+          - interfaces_up | int >= 4
+        fail_msg: "Insufficient interfaces up on {{ inventory_hostname }}"
+        success_msg: "Interface validation passed: {{ interfaces_up }} interfaces up"
+      tags:
+        - interfaces
+        - validate
+
+    - name: Check LLDP neighbors
+      junos_command:
+        commands:
+          - "show lldp neighbors"
+      register: lldp_neighbors
+      tags:
+        - lldp
+        - neighbors
+        - validate
+
+    - name: Count LLDP neighbors
+      set_fact:
+        lldp_neighbor_count: "{{ lldp_neighbors.stdout[0] | regex_findall('Interface') | length }}"
+      tags:
+        - lldp
+        - neighbors
+        - validate
+
+    - name: Validate LLDP connectivity
+      assert:
+        that:
+          - lldp_neighbor_count | int >= 2
+        fail_msg: "Insufficient LLDP neighbors on {{ inventory_hostname }}"
+        success_msg: "LLDP validation passed: {{ lldp_neighbor_count }} neighbors discovered"
+      tags:
+        - lldp
+        - neighbors
+        - validate
+
+    - name: Check routing table
+      junos_command:
+        commands:
+          - "show route summary"
+      register: route_summary
+      tags:
+        - routing
+        - validate
+
+    - name: Validate routing table has routes
+      assert:
+        that:
+          - "'routes' in route_summary.stdout[0]"
+        fail_msg: "Routing table empty on {{ inventory_hostname }}"
+        success_msg: "Routing table validation passed"
+      tags:
+        - routing
+        - validate
+
+    - name: Check system uptime
+      junos_command:
+        commands:
+          - "show system uptime"
+      register: system_uptime
+      tags:
+        - system
+        - health
+        - validate
+
+    - name: Check system resources
+      junos_command:
+        commands:
+          - "show system memory"
+          - "show system storage"
+      register: system_resources
+      tags:
+        - system
+        - health
+        - validate
+
+    - name: Validate system memory utilization
+      assert:
+        that:
+          - "'MB' in system_resources.stdout[0]"
+        fail_msg: "Unable to retrieve memory information"
+        success_msg: "System memory check passed"
+      tags:
+        - memory
+        - health
+        - validate
+
+    - name: Check for temperature warnings
+      junos_command:
+        commands:
+          - "show chassis routing-engine"
+      register: chassis_status
+      tags:
+        - chassis
+        - health
+        - validate
+
+    - name: Validate chassis health
+      assert:
+        that:
+          - "'Routing Engine' in chassis_status.stdout[0]"
+        fail_msg: "Chassis status check failed"
+        success_msg: "Chassis health check passed"
+      tags:
+        - chassis
+        - health
+        - validate
+
+    - name: Check alarm status
+      junos_command:
+        commands:
+          - "show chassis alarms"
+      register: alarms
+      tags:
+        - alarms
+        - health
+        - validate
+
+    - name: Verify no critical alarms
+      assert:
+        that:
+          - "'No alarms' in alarms.stdout[0] or 'YELLOW' not in alarms.stdout[0]"
+        fail_msg: "Critical alarms detected on {{ inventory_hostname }}"
+        success_msg: "No critical alarms found"
+      tags:
+        - alarms
+        - health
+        - validate
+
+    - name: Check configuration consistency
+      junos_command:
+        commands:
+          - "show configuration | display set | head 20"
+      register: config_check
+      tags:
+        - config
+        - validate
+
+    - name: Validate loopback configuration
+      assert:
+        that:
+          - "'lo0' in config_check.stdout[0]"
+        fail_msg: "Loopback interface not configured"
+        success_msg: "Loopback configuration validated"
+      tags:
+        - loopback
+        - config
+        - validate
+
+    - name: Check NETCONF status
+      junos_command:
+        commands:
+          - "show system services"
+      register: services_status
+      tags:
+        - services
+        - validate
+
+    - name: Validate NETCONF service
+      assert:
+        that:
+          - "'netconf' in services_status.stdout[0]"
+        fail_msg: "NETCONF service not enabled"
+        success_msg: "NETCONF service validated"
+      tags:
+        - netconf
+        - services
+        - validate
+
+    - name: Perform ping test to spine loopback (for leaves)
+      shell: |
+        ping -c 1 192.0.2.1 > /dev/null 2>&1 && echo "REACHABLE" || echo "UNREACHABLE"
+      register: spine_ping
+      when: inventory_hostname in groups['leaves']
+      ignore_errors: yes
+      tags:
+        - ping
+        - connectivity
+        - validate
+
+    - name: Validate spine reachability
+      assert:
+        that:
+          - "'REACHABLE' in spine_ping.stdout | default('UNREACHABLE')"
+        fail_msg: "Unable to reach spine from {{ inventory_hostname }}"
+        success_msg: "Spine reachability validated"
+      when: inventory_hostname in groups['leaves']
+      tags:
+        - ping
+        - connectivity
+        - validate
+
+    - name: Collect validation results for spines
+      set_fact:
+        validation_results: "{{ validation_results + [{'host': inventory_hostname, 'type': device_type, 'bgp_sessions': bgp_sessions_up, 'lldp_neighbors': lldp_neighbor_count, 'status': 'PASS'}] }}"
+      tags:
+        - results
+        - summary
+
+  post_tasks:
+    - name: Generate validation report
+      template:
+        src: validation_report.j2
+        dest: "{{ backup_path }}/validation_report_{{ ansible_date_time.iso8601_basic_short }}.txt"
+      delegate_to: localhost
+      run_once: yes
+      vars:
+        report_data: "{{ hostvars }}"
+      tags:
+        - report
+        - summary
+
+    - name: Display validation summary
+      debug:
+        msg:
+          - "Validation Summary for {{ inventory_hostname }}"
+          - "Device Type: {{ device_type }}"
+          - "BGP Sessions: {{ bgp_sessions_up }}"
+          - "LLDP Neighbors: {{ lldp_neighbor_count }}"
+          - "Interfaces Up: {{ interfaces_up }}"
+          - "Status: PASSED"
+      tags:
+        - summary
+        - always
+
+    - name: Export validation results
+      copy:
+        content: "{{ validation_results | to_nice_json }}"
+        dest: "{{ backup_path }}/validation_results.json"
+      delegate_to: localhost
+      run_once: yes
+      tags:
+        - export
+        - results
