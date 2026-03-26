@@ -459,13 +459,12 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) file for 
 - **HashiCorp**: For Terraform infrastructure-as-code framework
 - **Prometheus & Grafana Communities**: For monitoring stack excellence
 
-## Support and Contact
+## Support
 
 For issues, questions, or suggestions:
 
 - **GitHub Issues**: [Create an issue](https://github.com/emanuelam00/juniper-spine-and-leaf-dc/issues)
 - **Documentation**: See `/docs/` directory for detailed guides
-- **Email**: emanuel.aminov@gmail.com
 
 ---
 
